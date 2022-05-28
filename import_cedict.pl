@@ -21,20 +21,20 @@ import_cedict.pl - Import data from CC-CEDICT into the Sino database.
 =head1 DESCRIPTION
 
 This script is used to fill a Sino database with information derived
-from the CC-CEDICT data file.  Uses <Sino::DB>, C<Sino::Dict> and
-C<SinoConfig>, so you must configure those two correctly before using
-this script.  See the documentation in C<Sino::DB> for further
-information.
+from the CC-CEDICT data file.  
 
 This script should be your third step after using C<createdb.pl> to
 create an empty Sino database and C<import_tocfl.pl> to add the TOCFL
-data.  This script won't do anything unless the TOCFL data is already
-in the database!
+data.  You must have at least one word defined already in the database
+or this script will fail.
 
 This iterates through every record in CC-CEDICT.  For each record, check
 whether its traditional character rendering matches something in the
 C<han> table.  If it does, then the record data will be imported and
 linked properly within the Sino database.
+
+See C<config.md> in the C<doc> directory for configuration you must do
+before using this script.
 
 =cut
 
@@ -53,6 +53,11 @@ my $dbc = Sino::DB->connect($config_dbpath, 0);
 # Start a read-write transaction for everything
 #
 my $dbh = $dbc->beginWork('rw');
+
+# Check that there is at least one word
+#
+my $edck = $dbh->selectrow_arrayref('SELECT wordid FROM word');
+(ref($edck) eq 'ARRAY') or die "No words defined in database, stopped";
 
 # Load the CC-CEDICT dictionary
 #
