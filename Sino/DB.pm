@@ -19,8 +19,6 @@ Sino::DB - Manage the connection to the Sino database.
   
   my $dbc = Sino::DB->connect($config_dbpath, 0);
   
-  # Simple operation
-  #
   my $dbh = $dbc->beginWork('rw');
   ...
   $dbc->finishWork;
@@ -35,8 +33,8 @@ the database connection.
 To get the database handle, you use the C<beginWork> method and specify
 whether this is a read-only transaction or a read-write transaction.  If
 no transaction is currently active, this will start the appropriate kind
-of database transaction.  If a transaction is currently active, this will
-just use the existing transaction but increment an internal nesting
+of database transaction.  If a transaction is currently active, this
+will just use the existing transaction but increment an internal nesting
 counter.  It is a fatal error, however, to start a read-write
 transaction when a read-only transaction is currently active, though
 starting a read-only transaction while a read-write transaction is
@@ -62,32 +60,8 @@ the handle.  If any sort of fatal error occurs, rollback will
 automatically happen.  Also, due to the nesting support of work blocks,
 you can begin and end work blocks within procedure and library calls.
 
-=head2 Configuration file
-
-In order to use this module in a manner independent of specific system,
-generate a configuration module that looks like this:
-
-  package SinoConfig;
-  use parent qw(Exporter);
-  
-  our @EXPORT = qw($config_dbpath $config_dictpath);
-  
-  $config_dbpath = '/example/path/to/db.sqlite';
-  $config_dictpath = '/example/path/to/cedict.txt';
-  
-  1;
-
-Replace the example database path in the file contents shown above with
-the absolute path on the file system to the SQLite database file.
-Replace the example dictionary path shown above with the absolute path
-on the file system to the I<decompressed> CC-CEDICT data file, which can
-be obtained from the following website:
-
-  https://www.mdbg.net/chinese/dictionary?page=cc-cedict
-
-You must name the configuration module C<SinoConfig.pm> and place it in
-some directory that is in the Perl module include path of the scripts
-you will be running.
+See C<config.md> in the C<doc> directory for configuration you must do
+before using this module.
 
 =head1 CONSTRUCTOR
 
@@ -97,7 +71,7 @@ you will be running.
 
 Construct a new database connection object.  C<db_path> is the path in
 the local file system to the SQLite database file.  Normally, you get
-this from the C<SinoConfig> module, as explained earlier.
+this from the C<SinoConfig> module, as shown in the synopsis.
 
 The C<new_db> parameter should normally be set to false (0).  In this
 normal mode of operation, the constructor will check that the given path
