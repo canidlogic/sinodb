@@ -1,4 +1,4 @@
-package Dict::Parse;
+package Sino::Dict;
 use strict;
 
 # Core dependencies
@@ -6,15 +6,15 @@ use Fcntl qw(:seek);
 
 =head1 NAME
 
-Dict::Parse - Parse through the CC-CEDICT data file.
+Sino::Dict - Parse through the CC-CEDICT data file.
 
 =head1 SYNOPSIS
 
-  use Dict::Parse;
-  use DictConfig;
+  use Sino::Dict;
+  use SinoConfig;
   
   # Open the data file
-  my $dict = Dict::Parse->load($config_dictpath);
+  my $dict = Sino::Dict->load($config_dictpath);
   
   # (Re)start an iteration through the dictionary
   $dict->rewind;
@@ -46,31 +46,13 @@ Dict::Parse - Parse through the CC-CEDICT data file.
 =head1 DESCRIPTION
 
 Module that opens and allows for parsed iteration through the CC-CEDICT
-data file.  You can get the data file from the following website:
-
-  https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+data file.  It is recommended that you get the path to the CC-CEDICT
+dictionary file from the <SinoConfig> module.  See C<Sino::DB> for more
+information about how to set up the configuration file.
 
 See the synopsis for parsing operation.  This module only stores a
 single entry in memory at a time, so it should have no trouble handling
 the large data file.
-
-In order to use this module in a manner independent of specific system,
-generate a configuration module that looks like this:
-
-  package DictConfig;
-  use parent qw(Exporter);
-  
-  our @EXPORT = qw($config_dictpath);
-  
-  $config_dictpath = '/example/path/to/cedict_ts.u8';
-  
-  1;
-
-Replace the example path in the file contents shown above with the
-absolute path on the file system to the I<decompressed> CC-CEDICT data
-file.  You must name this module C<DictConfig.pm> and place it in some
-directory that is in the Perl module include path of the scripts you
-will be running.
 
 =head1 CONSTRUCTOR
 
@@ -80,7 +62,7 @@ will be running.
 
 Construct a new dictionary parser object.  C<data_path> is the path in
 the local file system to the I<decompressed> CC-CEDICT data file.
-Normally, you get this path from the C<DictConfig> module, as explained
+Normally, you get this path from the C<SinoConfig> module, as explained
 earlier.
 
 An read-only file handle to the data file is kept open while the object
