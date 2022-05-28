@@ -17,9 +17,10 @@ createdb.pl - Create a new Sino database with the appropriate structure.
 =head1 DESCRIPTION
 
 This script is used to create a new, empty database for Sino, with the
-appropriate structure but no records.  Uses Sino::DB and SinoConfig, so
-you must configure those two correctly before using this script.  See
-the documentation in C<Sino::DB> for further information.
+appropriate structure but no records.
+
+See C<config.md> in the C<doc> directory for configuration you must do
+before using this script.
 
 The database must not already exist or a fatal error occurs.
 
@@ -91,7 +92,8 @@ The wclass table defines the full set of part-of-speech designations.
 The names of the word classes must be unique.  Furthermore, each name
 begins with an uppercase ASCII letter followed by a sequence of zero or
 more additional characters, which must each be either lowercase ASCII
-letters or hyphens.
+letters or hyphens.  The C<wclassfull> is the full name of the word
+class, as opposed to C<wclassname> which is an abbreviation.
 
 =head2 wc table
 
@@ -190,7 +192,8 @@ CREATE INDEX ix_pny_text
 
 CREATE TABLE wclass (
   wclassid   INTEGER PRIMARY KEY ASC,
-  wclassname TEXT UNIQUE NOT NULL
+  wclassname TEXT UNIQUE NOT NULL,
+  wclassfull TEXT NOT NULL
 );
 
 CREATE UNIQUE INDEX ix_wclass_name
