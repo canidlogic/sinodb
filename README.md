@@ -16,4 +16,4 @@ The result of that will be a SQLite database generated at the location you speci
 
 See the POD documentation of `createdb` in the `pod` directory for the specifics of the database structure.
 
-You can use `wordscan.pl` to query keywords within the SQLite database.
+You can use `wordscan.pl` to query keywords in the glosses within the SQLite database, and you can use `wordquery.pl` to print out information about specific words.  Pipe the results of `wordscan.pl` into `wordquery.pl` for a full lookup system.
