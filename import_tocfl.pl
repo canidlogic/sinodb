@@ -20,7 +20,7 @@ import_tocfl.pl - Import data from TOCFL into the Sino database.
 =head1 DESCRIPTION
 
 This script is used to fill a Sino database with information derived
-from TOCFL vocabulary data files.  Uses Sino::DB and SinoConfig, so
+from TOCFL vocabulary data files.  Uses <Sino::DB> and C<SinoConfig>, so
 you must configure those two correctly before using this script.  See
 the documentation in C<Sino::DB> for further information.
 
@@ -50,6 +50,13 @@ they do, delete the header rows.
 Once you have the CSV files, pass the paths to all seven of them in
 order of increasing difficulty level to this script.  This script will
 parse the CSV data and import it into the Sino database.
+
+Note that the database has the requirement that no two words have the
+same Han reading, but there are indeed cases in the TOCFL data where two
+different entries have the same Han reading.  When this situation
+happens, this script will merge the two entries together into a single
+word.  The merger process is explained in further detail in the table
+documentation for C<createdb.pl>
 
 =cut
 
@@ -403,50 +410,166 @@ for(my $vlevel = 1; $vlevel <= 7; $vlevel++) {
       $wcv = $wcm{$wcv};
     }
     
-    # Determine new word ID as one greater than greatest existing, or
-    # 1 if this is the first
-    my $wordid = $dbh->selectrow_arrayref(
-                    'SELECT wordid FROM word ORDER BY wordid DESC');
-    if (ref($wordid) eq 'ARRAY') {
-      $wordid = $wordid->[0] + 1;
-    } else {
-      $wordid = 1;
+    # Look through all the headwords and determine the IDs of any
+    # existing words that share any of those headwords
+    my %sharemap;
+    for my $hwv (@hws) {
+      my $qck = $dbh->selectrow_arrayref(
+                    'SELECT wordid FROM han WHERE hantrad=?',
+                    undef,
+                    encode('UTF-8', $hwv,
+                            Encode::FB_CROAK | Encode::LEAVE_SRC));
+      if (ref($qck) eq 'ARRAY') {
+        $sharemap{"$qck->[0]"} = 1;
+      }
     }
+    my @sharelist = map(int, keys %sharemap);
     
-    # Add a new word record
-    $dbh->do('INSERT INTO word(wordid, wordlevel) VALUES (?, ?)',
-              undef, $wordid, $vlevel);
+    # Check that we don't have more than one share
+    ($#sharelist < 1) or die "Can't handle multi-mergers, stopped";
     
-    # Add all the han records, leaving the simplified values NULL
-    for(my $i = 0; $i <= $#hws; $i++) {
-      $dbh->do(
+    # Either add a brand-new word or merge this word into an already
+    # existing on
+    if ($#sharelist < 0) { # ===========================================
+      # Insert a brand-new word; determine new word ID as one greater
+      # than greatest existing, or 1 if this is the first
+      my $wordid = $dbh->selectrow_arrayref(
+                      'SELECT wordid FROM word ORDER BY wordid DESC');
+      if (ref($wordid) eq 'ARRAY') {
+        $wordid = $wordid->[0] + 1;
+      } else {
+        $wordid = 1;
+      }
+      
+      # Add a new word record
+      $dbh->do('INSERT INTO word(wordid, wordlevel) VALUES (?, ?)',
+                undef, $wordid, $vlevel);
+      
+      # Add all the han records
+      for(my $i = 0; $i <= $#hws; $i++) {
+        $dbh->do(
               'INSERT INTO han(wordid, hanord, hantrad) VALUES (?,?,?)',
-              undef,
-                $wordid,
-                $i + 1,
-                encode('UTF-8', $hws[$i],
-                        Encode::FB_CROAK | Encode::LEAVE_SRC));
-    }
-    
-    # Add all the Pinyin records
-    for(my $i = 0; $i <= $#pnys; $i++) {
-      $dbh->do(
+                undef,
+                  $wordid,
+                  $i + 1,
+                  encode('UTF-8', $hws[$i],
+                          Encode::FB_CROAK | Encode::LEAVE_SRC));
+      }
+      
+      # Add all the Pinyin records
+      for(my $i = 0; $i <= $#pnys; $i++) {
+        $dbh->do(
               'INSERT INTO pny(wordid, pnyord, pnytext) VALUES (?,?,?)',
-              undef,
-                $wordid,
-                $i + 1,
-                encode('UTF-8', $pnys[$i],
-                        Encode::FB_CROAK | Encode::LEAVE_SRC));
-    }
-    
-    # Add all the word class records
-    for(my $i = 0; $i <= $#wcs; $i++) {
-      $dbh->do(
+                undef,
+                  $wordid,
+                  $i + 1,
+                  encode('UTF-8', $pnys[$i],
+                          Encode::FB_CROAK | Encode::LEAVE_SRC));
+      }
+      
+      # Add all the word class records
+      for(my $i = 0; $i <= $#wcs; $i++) {
+        $dbh->do(
               'INSERT INTO wc(wordid, wcord, wclassid) VALUES (?,?,?)',
-              undef,
-                $wordid,
-                $i + 1,
-                $wcs[$i]);
+                undef,
+                  $wordid,
+                  $i + 1,
+                  $wcs[$i]);
+      }
+    
+    } elsif ($#sharelist == 0) { # =====================================
+      # We have an existing word we need to merge this entry into, so
+      # get the wordid of this existing word
+      my $wordid = $sharelist[0];
+      
+      # Get the maximum hanord value currently in use for this word
+      my $max_hanord = $dbh->selectrow_arrayref(
+                        'SELECT hanord FROM han '
+                        . 'WHERE wordid=? ORDER BY hanord DESC',
+                        undef,
+                        $wordid);
+      (ref($max_hanord) eq 'ARRAY') or die "Unexpected";
+      $max_hanord = $max_hanord->[0];
+      
+      # Get the maximum pnyord value currently in use for this word
+      my $max_pnyord = $dbh->selectrow_arrayref(
+                        'SELECT pnyord FROM pny '
+                        . 'WHERE wordid=? ORDER BY pnyord DESC',
+                        undef,
+                        $wordid);
+      (ref($max_pnyord) eq 'ARRAY') or die "Unexpected";
+      $max_pnyord = $max_pnyord->[0];
+      
+      # Get the maximum wcord value currently in use for this word
+      my $max_wcord = $dbh->selectrow_arrayref(
+                        'SELECT wcord FROM wc '
+                        . 'WHERE wordid=? ORDER BY wcord DESC',
+                        undef,
+                        $wordid);
+      (ref($max_wcord) eq 'ARRAY') or die "Unexpected";
+      $max_wcord = $max_wcord->[0];
+      
+      # Add any new han records
+      for(my $i = 0; $i <= $#hws; $i++) {
+        my $strv = encode('UTF-8', $hws[$i],
+                          Encode::FB_CROAK | Encode::LEAVE_SRC);
+        
+        my $nvk = $dbh->selectrow_arrayref(
+                    'SELECT hanid FROM han WHERE hantrad=?',
+                    undef,
+                    $strv);
+        unless (ref($nvk) eq 'ARRAY') {
+          $dbh->do(
+              'INSERT INTO han(wordid, hanord, hantrad) VALUES (?,?,?)',
+                  undef,
+                    $wordid,
+                    $max_hanord + 1,
+                    $strv);
+          $max_hanord++;
+        }
+      }
+      
+      # Add all the Pinyin records
+      for(my $i = 0; $i <= $#pnys; $i++) {
+        my $strv = encode('UTF-8', $pnys[$i],
+                          Encode::FB_CROAK | Encode::LEAVE_SRC);
+        
+        my $nvk = $dbh->selectrow_arrayref(
+                    'SELECT pnyid FROM pny '
+                    . 'WHERE wordid=? AND pnytext=?',
+                    undef,
+                    $wordid, $strv);
+        unless (ref($nvk) eq 'ARRAY') {
+          $dbh->do(
+              'INSERT INTO pny(wordid, pnyord, pnytext) VALUES (?,?,?)',
+                  undef,
+                    $wordid,
+                    $max_pnyord + 1,
+                    $strv);
+          $max_pnyord++;
+        }
+      }
+      
+      # Add all the word class records
+      for(my $i = 0; $i <= $#wcs; $i++) {
+        my $nvk = $dbh->selectrow_arrayref(
+                    'SELECT wcid FROM wc '
+                    . 'WHERE wordid=? AND wclassid=?',
+                    undef,
+                    $wordid, $wcs[$i]);
+        unless (ref($nvk) eq 'ARRAY') {
+          $dbh->do(
+              'INSERT INTO wc(wordid, wcord, wclassid) VALUES (?,?,?)',
+                  undef,
+                    $wordid,
+                    $max_wcord + 1,
+                    $wcs[$i]);
+          $max_wcord++;
+        }
+      }
+      
+    } else { # =========================================================
+      die "Unexpected";
     }
   }
   
