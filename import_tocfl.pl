@@ -16,41 +16,16 @@ import_tocfl.pl - Import data from TOCFL into the Sino database.
 
 =head1 SYNOPSIS
 
-  ./import_tocfl.pl nv1.csv nv2.csv l1.csv l2.csv l3.csv l4.csv l5.csv
+  ./import_tocfl.pl
 
 =head1 DESCRIPTION
 
 This script is used to fill a Sino database with information derived
-from TOCFL vocabulary data files.  Uses <Sino::DB> and C<SinoConfig>, so
-you must configure those two correctly before using this script.  See
-the documentation in C<Sino::DB> for further information.
+from TOCFL vocabulary data files.  This script should be your second
+step after using C<createdb.pl> to create an empty Sino database.
 
-This script should be your second step after using C<createdb.pl> to
-create an empty Sino database.
-
-As of the time of writing, the source vocabulary list can be downloaded
-from the following site:
-
-  https://tocfl.edu.tw/index.php/exam/download
-
-The file you want is named something like C<8000zhuyin_202204.rar>.
-(You may need to use an online converter to repackage this RAR archive
-in a non-proprietary archive format before extracting.)
-
-Within that archive, there should be a large Excel spreadsheet.  This
-spreadsheet has the vocabulary lists, with one spreadsheet tab for each
-vocabulary level.  Using LibreOffice Calc or some other spreadsheet
-program, copy each vocabulary list B<excluding the header rows> to a new
-spreadsheet and then save that spreadsheet copy in Comma-Separated Value
-(CSV) format, using commas as the separator, no quoting, and UTF-8
-encoding.  As a result, you should end up with seven CSV text files
-corresponding to the vocabulary levels within the spreadsheet.  The CSV
-files must B<not> have a header row with column names at the start; if
-they do, delete the header rows.
-
-Once you have the CSV files, pass the paths to all seven of them in
-order of increasing difficulty level to this script.  This script will
-parse the CSV data and import it into the Sino database.
+See C<config.md> in the C<doc> directory for configuration you must do
+before using this script.
 
 Note that the database has the requirement that no two words have the
 same Han reading, but there are indeed cases in the TOCFL data where two
@@ -567,11 +542,20 @@ sub match_pinyin {
 # Program entrypoint
 # ==================
 
-# Check that we got exactly seven arguments and each is a file
+# Check that there are no program arguments
 #
-($#ARGV == 6) or die "Wrong number of arguments, stopped";
-for my $fpath (@ARGV) {
-  (-f $fpath) or die "Can't find file '$fpath', stopped";
+($#ARGV < 0) or die "Not expecting program arguments, stopped";
+
+# Check that there are seven TOCFL data files in the configuration
+# variable and that each is a scalar that references an existing file
+#
+(ref($config_tocfl) eq 'ARRAY') or
+  die "Invalid TOCFL configuration, stopped";
+(scalar(@$config_tocfl) == 7) or
+  die "Invalid TOCFL configuration, stopped";
+for my $fpath (@$config_tocfl) {
+  (not ref($fpath)) or die "Invalid TOCFL configuration, stopped";
+  (-f $fpath) or die "Can't find TOCFL file '$fpath', stopped";
 }
 
 # Open database connection to existing database
@@ -582,29 +566,54 @@ my $dbc = Sino::DB->connect($config_dbpath, 0);
 #
 my $dbh = $dbc->beginWork('rw');
 
+# Check that nothing in the wclass table or the word table
+#
+my $ecq = $dbh->selectrow_arrayref('SELECT wclassid FROM wclass');
+(not (ref($ecq) eq 'ARRAY')) or
+  die "Database already has records, stopped";
+
+$ecq = $dbh->selectrow_arrayref('SELECT wordid FROM word');
+(not (ref($ecq) eq 'ARRAY')) or
+  die "Database already has records, stopped";
+
 # Define hash that will store mapping of word-class names to their
 # numeric IDs
 #
 my %wcm;
 
-# Get all existing word-class mappings in the database, checking the
-# name format in the process
+# Add all the word class information to the database; this dataset is
+# derived from an auxiliary datasheet that accompanies the TOCFL data
 #
-my $wcq = $dbh->selectall_arrayref(
-            'SELECT wclassid, wclassname FROM wclass');
-if (ref($wcq) eq 'ARRAY') {
-  for my $wca (@$wcq) {
-    # Get name and numeric id
-    my $wcn = $wcq->[1];
-    my $wci = $wcq->[0];
-    
-    # Verify the name format
-    ($wcn =~ /\A[A-Z][a-z\-]*\z/) or
-      die "Invalid existing word class name '$wcn', stopped";
-    
-    # Store the name -> ID mapping
-    $wcm{$wcn} = $wci;
-  }
+for my $wcrec (
+    [ 1, 'Adv'    , 'adverb'                              ],
+    [ 2, 'Conj'   , 'conjunction'                         ],
+    [ 3, 'Det'    , 'determiner'                          ],
+    [ 4, 'M'      , 'measure'                             ],
+    [ 5, 'N'      , 'noun'                                ],
+    [ 6, 'Prep'   , 'preposition'                         ],
+    [ 7, 'Ptc'    , 'particle'                            ],
+    [ 8, 'V'      , 'verb'                                ],
+    [ 9, 'Vi'     , 'intransitive action verb'            ],
+    [10, 'V-sep'  , 'intransitive action verb, separable' ],
+    [11, 'Vs'     , 'intransitive state verb'             ],
+    [12, 'Vst'    , 'transitive state verb'               ],
+    [13, 'Vs-attr', 'intransitive state verb, attributive'],
+    [14, 'Vs-pred', 'intransitive state verb, predicative'],
+    [15, 'Vs-sep' , 'intransitive state verb, separable'  ],
+    [16, 'Vaux'   , 'auxiliary verb'                      ],
+    [17, 'Vp'     , 'intransitive process verb'           ],
+    [18, 'Vpt'    , 'transitive process verb'             ],
+    [19, 'Vp-sep' , 'intransitive process verb, separable']
+  ) {
+  
+  $dbh->do(
+    'INSERT INTO wclass(wclassid, wclassname, wclassfull) '
+    . 'VALUES (?,?,?)',
+    undef,
+    $wcrec->[0],
+    $wcrec->[1],
+    $wcrec->[2]);
+  $wcm{$wcrec->[1]} = $wcrec->[0];
 }
 
 # Process files level by level
@@ -612,7 +621,7 @@ if (ref($wcq) eq 'ARRAY') {
 for(my $vlevel = 1; $vlevel <= 7; $vlevel++) {
 
   # Open the file for reading in UTF-8 with CR+LF translation
-  my $fpath = $ARGV[$vlevel - 1];
+  my $fpath = $config_tocfl->[$vlevel - 1];
   open(my $fh, "< :encoding(UTF-8) :crlf", $fpath) or
     die "Failed to open '$fpath', stopped";
   
@@ -891,30 +900,12 @@ for(my $vlevel = 1; $vlevel <= 7; $vlevel++) {
       }
     }
     
-    # We are now ready to start importing the record; begin by adding
-    # any new word classes that we have encountered
-    for my $wcn (@wcs) {
-      # Add if unrecognized
-      if (not defined $wcm{$wcn}) {
-        # Insert new value
-        $dbh->do(
-                'INSERT INTO wclass(wclassname) VALUES (?)',
-                undef,
-                $wcn);
-        
-        # Get ID of new value and add to our mapping
-        my $qr = $dbh->selectrow_arrayref(
-                  'SELECT wclassid FROM wclass WHERE wclassname=?',
-                  undef,
-                  $wcn);
-        (ref($qr) eq 'ARRAY') or die "Unexpected";
-        $wcm{$wcn} = $qr->[0];
-      }
-    }
-    
     # We now have all word classes, so go through the word class list
-    # and replace everything with the numeric ID value
+    # and replace everything with the numeric ID value, checking that
+    # each is recognized
     for my $wcv (@wcs) {
+      (defined $wcm{$wcv}) or
+        die "Unrecognized word class '$wcv', stopped";
       $wcv = $wcm{$wcv};
     }
     
