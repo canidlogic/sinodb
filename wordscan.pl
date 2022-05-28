@@ -63,7 +63,8 @@ my %results;
 my $sth = $dbh->prepare(
   'SELECT han.wordid, dfn.dfntext '
   . 'FROM dfn '
-  . 'INNER JOIN han ON han.hanid = dfn.hanid'
+  . 'INNER JOIN mpy ON mpy.mpyid = dfn.mpyid '
+  . 'INNER JOIN han ON han.hanid = mpy.hanid'
 );
 
 # Run the statement and iterate through all result records
