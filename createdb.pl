@@ -65,14 +65,22 @@ merged word has all unique Han renderings across the merged words.
 
 =head2 pny table
 
-The pny table stores the Pinyin readings for each word.  Each word may
-have multiple Pinyin readings.  The C<wordid> is a foreign key into the
-C<word> table.  C<pnyord> determines the ordering if there are multiple
-versions for the same word.  C<pnytext> is the actual Pinyin.  The
-format used in the TOCFL data files is used in the Sino database, with
-syllables written directly after on another, Unicode diacritics used for
-tone marking, and everything lowercase.  However, breve diacritics
-should be replaced with the standard caron diacritics.
+The pny table stores the Pinyin readings for each Han reading in the
+C<han> table.  These Pinyin readings are taken only from the TOCFL data
+files, so they should all be for Taiwan Mandarin.  Each Han reading may
+have multiple Pinyin readings.  The C<hanid> is a foreign key into the
+C<han> table.  C<pnyord> determines the ordering if there are multiple
+Pinyin readings for the same Han reading.  C<pnytext> is the actual
+Pinyin.  The format used in the TOCFL data files is used in the Sino
+database, with syllables written directly after on another,
+Unicode diacritics used for tone marking, and everything lowercase.
+
+However, breve diacritics in the TOCFL data files are replaced with the
+proper caron diacritics, parenthetical options are not allowed,  ZWSP is
+dropped when it occurs, the lowercase a variant codepoint is replaced
+with ASCII a, and a couple of cases where the wrong vowel was marked
+with the tonal diacritic are corrected.  See the C<import_tocfl.pl>
+script for further information.
 
 When different TOCFL source words are merged together in this table, the
 merged word has all unique Pinyin renderings across the merged words.
@@ -98,26 +106,31 @@ When different TOCFL source words are merged together in this table, the
 merged word has all unique part-of-speech designations across the merged
 words.
 
+=head2 mpy table
+
+The mpy table stores the top-level definition records from CC-CEDICT
+that will be associated with Han characters.  Each record in this table
+corresponds to a single record in the CC-CEDICT dictionary file.  Since
+there may be multiple records in CC-CEDICT for each Han reading, this
+table allows for multiple definitions for each Han reading, with
+C<mpyord> used to order each of these definition records.
+
+This table also stores additional data from the CC-CEDICT dictionary
+that is specific to individual records.  The C<mpysimp> field stores the
+simplified-character Han reading.  The C<mpypny> field stores the Pinyin
+from CC-CEDICT.  Note that this Pinyin is in a different format than is
+used in the C<pny> table, and also note that mainland pronunciations are
+used instead of Taiwan Mandarin.
+
 =head2 dfn table
 
-The dfn table associates records from CC-CEDICT with Han readings from
-the C<han> table.  C<hanid> is a foreign key into that table.
+The dfn table associates glosses from CC-CEDICT with definition records
+in the C<mpy> table.  C<mpyid> is a foreign key into that table.
 
 CC-CEDICT glosses for a particular Han reading are organized according
-to three sequence orderings.  The greatest sequence ordering is
-C<dfnomaj>, the major ordering.  The second-greatest sequence ordering
-is C<dfnomin>, the minor ordering.  The third-greatest sequence ordering
-is C<dfnogls>, the gloss ordering.  Finally, C<dfntext> gives the actual
-gloss text.
-
-When a single Han reading maps to multiple records in the CC-CEDICT
-database, each of the records is given a different major ordering
-number.  This is the case, for example, for different Pinyin readings of
-the same Han reading.
-
-Within each record in the CC-CEDICT database, there is a two-level
-ordering, first by senses and second by glosses.  The senses map to the
-minor ordering and the glosses map to the gloss ordering.
+to two sequence orderings.  The greater sequence ordering is C<dfnosen>,
+the sense ordering.  The lesser sequence ordering is C<dfnogls>, the
+gloss ordering.  Finally, C<dfntext> gives the actual gloss text.
 
 =cut
 
@@ -157,20 +170,20 @@ CREATE UNIQUE INDEX ix_han_trad
 
 CREATE TABLE pny (
   pnyid   INTEGER PRIMARY KEY ASC,
-  wordid  INTEGER NOT NULL
-            REFERENCES word(wordid)
+  hanid   INTEGER NOT NULL
+            REFERENCES han(hanid)
               ON DELETE CASCADE
               ON UPDATE CASCADE,
   pnyord  INTEGER NOT NULL,
   pnytext TEXT NOT NULL,
-  UNIQUE  (wordid, pnyord)
+  UNIQUE  (hanid, pnyord)
 );
 
 CREATE UNIQUE INDEX ix_pny_rec
-  ON pny(wordid, pnyord);
+  ON pny(hanid, pnyord);
 
-CREATE INDEX ix_pny_word
-  ON pny(wordid);
+CREATE INDEX ix_pny_han
+  ON pny(hanid);
 
 CREATE INDEX ix_pny_text
   ON pny(pnytext);
@@ -206,24 +219,47 @@ CREATE INDEX ix_wc_word
 CREATE INDEX ix_wc_class
   ON wc(wclassid);
 
-CREATE TABLE dfn (
-  dfnid   INTEGER PRIMARY KEY ASC,
+CREATE TABLE mpy (
+  mpyid   INTEGER PRIMARY KEY ASC,
   hanid   INTEGER NOT NULL
             REFERENCES han(hanid)
               ON DELETE CASCADE
               ON UPDATE CASCADE,
-  dfnomaj INTEGER NOT NULL,
-  dfnomin INTEGER NOT NULL,
+  mpyord  INTEGER NOT NULL,
+  mpysimp TEXT NOT NULL,
+  mpypny  TEXT NOT NULL,
+  UNIQUE  (hanid, mpyord)
+);
+
+CREATE UNIQUE INDEX ix_mpy_rec
+  ON mpy(hanid, mpyord);
+
+CREATE INDEX ix_mpy_han
+  ON mpy(hanid);
+
+CREATE INDEX ix_mpy_simp
+  ON mpy(mpysimp);
+
+CREATE INDEX ix_mpy_pny
+  ON mpy(mpypny);
+
+CREATE TABLE dfn (
+  dfnid   INTEGER PRIMARY KEY ASC,
+  mpyid   INTEGER NOT NULL
+            REFERENCES mpy(mpyid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  dfnosen INTEGER NOT NULL,
   dfnogls INTEGER NOT NULL,
   dfntext TEXT NOT NULL,
-  UNIQUE  (hanid, dfnomaj, dfnomin, dfnogls)
+  UNIQUE  (mpyid, dfnosen, dfnogls)
 );
 
 CREATE UNIQUE INDEX ix_dfn_rec
-  ON dfn(hanid, dfnomaj, dfnomin, dfnogls);
+  ON dfn(mpyid, dfnosen, dfnogls);
 
-CREATE INDEX ix_dfn_han
-  ON dfn(hanid);
+CREATE INDEX ix_dfn_mpy
+  ON dfn(mpyid);
 
 };
 
