@@ -29,6 +29,9 @@ case-insensitive, and only ASCII characters may be used in keywords.
 Spaces may be included in (quoted) arguments, in which case the space
 will be searched for as part of the keyword.
 
+See C<config.md> in the C<doc> directory for configuration you must do
+before using this script.
+
 =cut
 
 # ==================
