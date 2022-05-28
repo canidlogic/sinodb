@@ -2,24 +2,65 @@
 use strict;
 use warnings;
 
+# Dict modules
+use Dict::Parse;
+use DictConfig;
+
 =head1 NAME
 
 dupscan.pl - Scan through the CC-CEDICT data file and report all groups
-of entries that have the exact same traditional character headword AND
-Pinyin (case sensitive).
+of entries that have the same traditional character headword and Pinyin.
 
 =head1 SYNOPSIS
 
-  ./dupscan.pl cedict.txt
+  ./dupscan.pl
+  ./dupscan.pl -ci -nt
+  ./dupscan.pl -limit 4 -np -uc
 
 =head1 DESCRIPTION
 
-Scans through the CC-CEDICT data file at the given path twice.  The
-first time, records a mapping of traditional character strings and
-Pinyin to all line numbers they are used on.  Then, builds a list of
-just line numbers that are involved in a duplicate group.  The second
-pass, maps all these chosen line numbers to their lines.  Finally,
-outputs the groups, with a blank line between groups.
+Scans through the CC-CEDICT data file.  Records a mapping of traditional
+character strings and Pinyin to all line numbers they are used on.
+Then, reports all groups on line numbers with the same keys.
+
+You can pass flags indicating operations to perform on keys before they
+are stored.  The following flags are supported:
+
+=over 4
+
+=item C<-ci>
+
+Pinyin will be made lowercase, so that duplication detection is case
+insensitive.  Ignored if C<-np> is specified.
+
+=item C<-nt>
+
+Tone numbers will be dropped from Pinyin so that comparisons are done
+without consideration for tone.  Ignored if C<-np> is specified.
+
+=item C<-np>
+
+No Pinyin will be considered and duplication detection works on
+traditional characters only.
+
+=item c<-nn>
+
+Do not consider records where the Pinyin begins with a capital letter,
+indicating a proper name.
+
+=item C<-uc>
+
+Only consider records where all traditional characters are within the
+core CJK Unicode block [U+4E00 U+9FFF] I<and> the number of traditional
+characters equals the number of Pinyin syllables.
+
+=item C<-limit> I<length>
+
+Given an unsigned integer parameter that is greater than zero, only
+consider records where the traditional character rendering does not
+exceed the given length.
+
+=back
 
 =cut
 
@@ -27,53 +68,89 @@ outputs the groups, with a blank line between groups.
 # Program entrypoint
 # ==================
 
-# Switch input and output to UTF-8 and CR+LF decoding
+# Get flag values
 #
-binmode(STDIN,  ":encoding(UTF-8) :crlf") or
-  die "Failed to set UTF-8 input, stopped";
-binmode(STDERR, ":encoding(UTF-8) :crlf") or
-  die "Failed to set UTF-8 output, stopped";
-binmode(STDOUT, ":encoding(UTF-8) :crlf") or
-  die "Failed to set UTF-8 output, stopped";
+my $flag_ci = 0;
+my $flag_nt = 0;
+my $flag_np = 0;
+my $flag_nn = 0;
+my $flag_uc = 0;
+my $len_limit = undef;
 
-# Get argument and check that it is file
-#
-($#ARGV == 0) or die "Wrong number of parameters, stopped";
-my $dict_path = $ARGV[0];
-(-f $dict_path) or die "Can't find file '$dict_path', stopped";
+for(my $i = 0; $i <= $#ARGV; $i++) {
+  if ($ARGV[$i] eq '-ci') {
+    $flag_ci = 1;
+    
+  } elsif ($ARGV[$i] eq '-nt') {
+    $flag_nt = 1;
+  
+  } elsif ($ARGV[$i] eq '-np') {
+    $flag_np = 1;
+    
+  } elsif ($ARGV[$i] eq '-nn') {
+    $flag_nn = 1;
+  
+  } elsif ($ARGV[$i] eq '-uc') {
+    $flag_uc = 1;
+    
+  } elsif ($ARGV[$i] eq '-limit') {
+    ($i < $#ARGV) or die "-limit needs a parameter, stopped";
+    $i++;
+    ($ARGV[$i] =~ /\A[1-9][0-9]*\z/) or
+      die "Invalid length limit, stopped";
+    (not defined $len_limit) or
+      die "Can only have one length limit, stopped";
+    $len_limit = int($ARGV[$i]);
+  
+  } else {
+    die "Unrecognized flag '$ARGV[$i]', stopped";
+  }
+}
 
-# Open input file in UTF-8 with CR+LF decoding
+# Open the parser
 #
-open(my $fh, "< :encoding(UTF-8) :crlf", $dict_path) or
-  die "Can't open file '$dict_path', stopped";
+my $dict = Dict::Parse->load($config_dictpath);
 
-# On the first pass, build mapping of traditional headwords and
-# lowercased Pinyin to line numbers
+# Build mapping of traditional headwords and Pinyin to line numbers
 #
-my $lnum = 0;
 my %tcm;
-while (my $ltext = readline($fh)) {
-  # Increase line number
-  $lnum++;
-  
-  # Drop line break
-  chomp $ltext;
-  
-  # If first line, drop any UTF-8 Byte Order Mark (BOM)
-  if ($lnum == 1) {
-    $ltext =~ s/\A\x{feff}\z//;
-  }
-  
-  # Skip if blank or starts with #
-  if (($ltext =~ /\A[ \t]*\z/) or ($ltext =~ /\A#/)) {
-    next;
-  }
-  
+while ($dict->advance) {
   # Get traditional headword and Pinyin
-  ($ltext =~ /\A([^ ]+) [^\[]*\[([^\]]*)\]/) or
-    die "Invalid dictionary line '$ltext', stopped";
-  my $hword = $1;
-  my $pny   = $2;
+  my $hword = $dict->traditional;
+  my $pny   = join ' ', $dict->pinyin;
+  
+  # If no-name flag, skip if Pinyin starts with uppercase letter
+  if ($flag_nn) {
+    (not ($pny =~ /\A[A-Z]/)) or next;
+  }
+  
+  # If length limit defined, skip if headword too long
+  if (defined $len_limit) {
+    (length($hword) <= $len_limit) or next;
+  }
+  
+  # If usual-character flag, skip unless all traditional characters in
+  # core Unicode range and number of traditional characters equals
+  # number of Pinyin syllables
+  if ($flag_uc) {
+    ($hword =~ /\A[\x{4E00}-\x{9FFF}]+\z/) or next;
+    (length($hword) == scalar($dict->pinyin)) or next;
+  }
+  
+  # If no-pinyin flag, change pinyin to empty string
+  if ($flag_np) {
+    $pny = '';
+  }
+  
+  # If case-insensitive flag, covert Pinyin to lowercase
+  if ($flag_ci) {
+    $pny =~ tr/A-Z/a-z/;
+  }
+  
+  # If no-tones flag, drop tone numbers
+  if ($flag_nt) {
+    $pny =~ s/([A-Za-z:])[1-5]/$1/g;
+  }
   
   # Define key
   my $kval = "$hword $pny";
@@ -81,16 +158,16 @@ while (my $ltext = readline($fh)) {
   # Add into mapping
   if (defined $tcm{$kval}) {
     # Already defined, so push line number to end of list
-    push @{$tcm{$kval}}, ($lnum);
+    push @{$tcm{$kval}}, ($dict->line_number);
     
   } else {
     # Not already defined, so start list with this line number
-    $tcm{$kval} = [$lnum];
+    $tcm{$kval} = [$dict->line_number];
   }
 }
 
-# Only interested in cases where more than one line, so drop everything
-# else
+# Only interested in cases where more than one record, so drop
+# everything else
 #
 my @del_key;
 for my $k (keys %tcm) {
@@ -103,60 +180,30 @@ for my $k (@del_key) {
 }
 @del_key = ( );
 
-# Build hash of line numbers of interest, currently all mapped to 1
+# Report all remaining groups, and count number of groups and total
+# number of entries involved in groups
 #
-my %lh;
-for my $k (keys %tcm) {
-  for my $ln (@{$tcm{$k}}) {
-    $lh{"$ln"} = 1;
+my $total_groups  = 0;
+my $total_entries = 0;
+for my $va (sort { int($a->[0]) <=> int($b->[0]) } values %tcm) {
+  $total_groups++;
+  my $first = 1;
+  for my $r (@$va) {
+    if ($first) {
+      $first = 0;
+    } else {
+      print ' ';
+    }
+    print "$r";
+    $total_entries++;
   }
+  print "\n";
 }
 
-# Rewind input file to beginning
+# Report total
 #
-seek($fh, 0, 0) or die "Failed to rewind file, stopped";
-
-# Go through input file again, this time storing all lines of interest
-# within the line numbers of interest hash
-#
-$lnum = 0;
-while (my $ltext = readline($fh)) {
-  # Increase line number
-  $lnum++;
-  
-  # Drop line break
-  chomp $ltext;
-  
-  # If first line, drop any UTF-8 Byte Order Mark (BOM)
-  if ($lnum == 1) {
-    $ltext =~ s/\A\x{feff}\z//;
-  }
-  
-  # If line number of interest, record line
-  if (defined $lh{"$lnum"}) {
-    $lh{"$lnum"} = $ltext;
-  }
-}
-
-# Close input file
-#
-close($fh);
-
-# For each group, print out all lines
-#
-my $first_group = 1;
-for my $k (sort keys %tcm) {
-  if ($first_group) {
-    $first_group = 0;
-  } else {
-    print "\n";
-  }
-  
-  for my $ln (@{$tcm{$k}}) {
-    my $lv = $lh{"$ln"};
-    print "$lv\n";
-  }
-}
+print "# Total groups : $total_groups\n";
+print "# Total entries: $total_entries\n";
 
 =head1 AUTHOR
 
