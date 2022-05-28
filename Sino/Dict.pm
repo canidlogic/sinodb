@@ -47,12 +47,14 @@ Sino::Dict - Parse through the CC-CEDICT data file.
 
 Module that opens and allows for parsed iteration through the CC-CEDICT
 data file.  It is recommended that you get the path to the CC-CEDICT
-dictionary file from the <SinoConfig> module.  See C<Sino::DB> for more
-information about how to set up the configuration file.
+dictionary file from the <SinoConfig> module, as shown in the synopsis.
 
 See the synopsis for parsing operation.  This module only stores a
 single entry in memory at a time, so it should have no trouble handling
 the large data file.
+
+See C<config.md> in the C<doc> directory for configuration you must do
+before using this module.
 
 =head1 CONSTRUCTOR
 
@@ -62,8 +64,8 @@ the large data file.
 
 Construct a new dictionary parser object.  C<data_path> is the path in
 the local file system to the I<decompressed> CC-CEDICT data file.
-Normally, you get this path from the C<SinoConfig> module, as explained
-earlier.
+Normally, you get this path from the C<SinoConfig> module, as shown in
+the synopsis.
 
 An read-only file handle to the data file is kept open while the object
 is constructed.  Undefined behavior occurs if the data file changes
