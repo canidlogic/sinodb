@@ -30,18 +30,11 @@ directly put the return value of the senses method of C<Dict::Parse>
 into the parameters of this function to parse all the senses of a word.
 
 The return value from this function is a list in list context of zero
-or more hash references.  Each hash reference is a detected variant
-reference.  Depending on the variant format, there are three types of
-property sets that might appear.  In the first case, there will be a
-property C<han> and a property C<pinyin>.  In the second case, there
-will be a property C<han> by itself.  In the third case, there will be
-a property C<trad> and a property C<simp>.
-
-The C<han> property is a Han character rendering standing by itself.
-The C<trad> and C<simp> properties are Han character renderings given in
-a pair to indicate traditional and simpliifed.  The C<pinyin> property
-when present is an array reference containing all the detected Pinyin
-syllables.
+or more array references.  Each array reference is a detected variant
+reference.  Either the array includes two elements specifying the
+traditional and simplified Han renderings, or it includes three elements
+specifying the traditional Han, simplified Han, and the Pinyin (with
+exactly one space between syllables and no leading or trailing padding).
 
 See the C<variants.pl> script for further information about recognized
 variant reference formats.
@@ -67,17 +60,53 @@ sub variants {
       (not ref($gloss)) or die "Invalid parameter type, stopped";
     
       # Detect the variant types
-      if ($gloss =~ /
-                      variant
-                      \s+
-                      of
-                      \s+
-                      (\S*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}]\S*)
-                      \s*
-                      \[([^\[\]]*)\]
-                    /xi) {
+      if ($gloss =~
+          /
+            variant
+            \s+
+            of
+            \s+
+            ([^\s\|]*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}][^\s\|]*)
+            \|
+            ([^\s\|]*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}][^\s\|]*)
+            \s*
+            \[([^\[\]]*)\]
+          /xi) {
         # Get parameters
-        my $han    = $1;
+        my $trad   = $1;
+        my $simp   = $2;
+        my $pinyin = $3;
+        
+        # Trim Pinyin of leading and trailing whitespace
+        $pinyin =~ s/\A\s+//;
+        $pinyin =~ s/\s+\z//;
+        
+        # Make sure Pinyin after trimming is not empty
+        (length($pinyin) > 0) or
+          die "Invalid variant reference, stopped";
+        
+        # Split Pinyin into whitespace-separated tokens
+        my @pnys = split ' ', $pinyin;
+        ($#pnys >= 0) or die "Unexpected";
+        
+        # Rejoin Pinyin with exactly one space between
+        $pinyin = join ' ', @pnys;
+        
+        # Add to results
+        push @results, ([ $trad, $simp, $pinyin ]);
+      
+      } elsif ($gloss =~ 
+          /
+            variant
+            \s+
+            of
+            \s+
+            ([^\s\|]*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}][^\s\|]*)
+            \s*
+            \[([^\[\]]*)\]
+          /xi) {
+        # Get parameters
+        my $trad   = $1;
         my $pinyin = $2;
         
         # Trim Pinyin of leading and trailing whitespace
@@ -92,47 +121,42 @@ sub variants {
         my @pnys = split ' ', $pinyin;
         ($#pnys >= 0) or die "Unexpected";
         
+        # Rejoin Pinyin with exactly one space between
+        $pinyin = join ' ', @pnys;
+        
         # Add to results
-        push @results, ({
-          han    => $han,
-          pinyin => \@pnys
-        });
+        push @results, ([ $trad, $trad, $pinyin ]);
       
       } elsif ($gloss =~
-                    /
-                      variant
-                      \s+
-                      of
-                      \s+
-                      (\S*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}]\S*)
-                      \|
-                      (\S*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}]\S*)
-                    /xi) {
+          /
+            variant
+            \s+
+            of
+            \s+
+            ([^\s\|]*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}][^\s\|]*)
+            \|
+            ([^\s\|]*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}][^\s\|]*)
+          /xi) {
         # Get parameters
         my $trad = $1;
         my $simp = $2;
         
         # Add to results
-        push @results, ({
-          trad => $trad,
-          simp => $simp
-        });
+        push @results, ([ $trad, $simp ]);
       
       } elsif ($gloss =~
-                    /
-                      variant
-                      \s+
-                      of
-                      \s+
-                      (\S*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}]\S*)
-                    /xi) {
+          /
+            variant
+            \s+
+            of
+            \s+
+            ([^\s\|]*[\p{Lo}\x{3000}-\x{303f}\x{25a0}-\x{25ff}][^\s\|]*)
+          /xi) {
         # Get parameter
-        my $han = $1;
+        my $trad = $1;
         
         # Add to results
-        push @results, ({
-          han => $han
-        });
+        push @results, ([ $trad, $trad ]);
       }
     }
   }
