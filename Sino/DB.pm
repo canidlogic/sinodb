@@ -70,18 +70,24 @@ generate a configuration module that looks like this:
   package SinoConfig;
   use parent qw(Exporter);
   
-  our @EXPORT = qw($config_dbpath);
+  our @EXPORT = qw($config_dbpath $config_dictpath);
   
   $config_dbpath = '/example/path/to/db.sqlite';
+  $config_dictpath = '/example/path/to/cedict.txt';
   
   1;
 
-Replace the example path in the file contents shown above with the
-absolute path on the file system to the SQLite database file.  The
-purpose of this module is to define a C<config_dbpath> Perl variable
-that holds the path to the SQLite database.  You must name this module
-C<SinoConfig.pm> and place it in some directory that is in the Perl
-module include path of the scripts you will be running.
+Replace the example database path in the file contents shown above with
+the absolute path on the file system to the SQLite database file.
+Replace the example dictionary path shown above with the absolute path
+on the file system to the I<decompressed> CC-CEDICT data file, which can
+be obtained from the following website:
+
+  https://www.mdbg.net/chinese/dictionary?page=cc-cedict
+
+You must name the configuration module C<SinoConfig.pm> and place it in
+some directory that is in the Perl module include path of the scripts
+you will be running.
 
 =head1 CONSTRUCTOR
 
