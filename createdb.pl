@@ -43,19 +43,25 @@ which has one of the following values:
        5     | TOCFL Level 3
        6     | TOCFL Level 4
        7     | TOCFL Level 5
-       9     | Not covered by TOCFL
+
+When different TOCFL source words are merged together in this table, the
+merged word has the minimum wordlevel of the words being merged.
 
 =head2 han table
 
 The han table stores the Chinese characters for each word.  Each word
 may have multiple Han readings.  The C<wordid> is a foreign key into the
 C<word> table.  C<hanord> determines the ordering if there are multiple
-versions for the same word.  C<hantrad> and C<hansimp> store the
-traditional and simplified versions of the this variant.  If the
-simplified version is the same as the traditional version, the
-C<hansimp> field should duplicate the C<hantrad> field.  If the
-simplified version is not known, then C<hansimp> should be NULL.  All
-words should have at least one record in this table.
+versions for the same word.  C<hantrad> stores the traditional
+characters.
+
+The C<hantrad> field must be unique, so that two different words are
+I<not> allowed to have the same Han character rendering.  This does
+happen sometimes in the TOCFL dataset, in which case words are merged
+together.
+
+When different TOCFL source words are merged together in this table, the
+merged word has all unique Han renderings across the merged words.
 
 =head2 pny table
 
@@ -65,9 +71,11 @@ C<word> table.  C<pnyord> determines the ordering if there are multiple
 versions for the same word.  C<pnytext> is the actual Pinyin.  The
 format used in the TOCFL data files is used in the Sino database, with
 syllables written directly after on another, Unicode diacritics used for
-tone marking, and everything lowercase.  All words should have at least
-one record in this table.  Note that words with C<wordclass> 9 are based
-on mainland pronunciation.
+tone marking, and everything lowercase.  However, breve diacritics
+should be replaced with the standard caron diacritics.
+
+When different TOCFL source words are merged together in this table, the
+merged word has all unique Pinyin renderings across the merged words.
 
 =head2 wclass table
 
@@ -86,16 +94,30 @@ single word.  C<wclassid> is a foreign key into the C<wclass> table,
 selecting the part-of-speech.  Some words do not have any word class
 designation with them.
 
+When different TOCFL source words are merged together in this table, the
+merged word has all unique part-of-speech designations across the merged
+words.
+
 =head2 dfn table
 
-The dfn table associates glosses and other additional information with
-words.  (Note that Chinese characters may be used in these entries!)
-C<wordid> is a foreign key into the C<word> table.  C<dfnsord> and
-C<dfngord> provide a two-level ordering if there are multiple glosses.
-The C<dfnsord> is the higher-level ordering, which indicates separate
-senses of the word.  The C<dfngord> is the lower-level ordering, which
-indicates separate glosses of the same sense of the word.  The actual
-gloss is stored in the C<dfntext> field.
+The dfn table associates records from CC-CEDICT with Han readings from
+the C<han> table.  C<hanid> is a foreign key into that table.
+
+CC-CEDICT glosses for a particular Han reading are organized according
+to three sequence orderings.  The greatest sequence ordering is
+C<dfnomaj>, the major ordering.  The second-greatest sequence ordering
+is C<dfnomin>, the minor ordering.  The third-greatest sequence ordering
+is C<dfnogls>, the gloss ordering.  Finally, C<dfntext> gives the actual
+gloss text.
+
+When a single Han reading maps to multiple records in the CC-CEDICT
+database, each of the records is given a different major ordering
+number.  This is the case, for example, for different Pinyin readings of
+the same Han reading.
+
+Within each record in the CC-CEDICT database, there is a two-level
+ordering, first by senses and second by glosses.  The senses map to the
+minor ordering and the glosses map to the gloss ordering.
 
 =cut
 
@@ -120,8 +142,7 @@ CREATE TABLE han (
               ON DELETE CASCADE
               ON UPDATE CASCADE,
   hanord  INTEGER NOT NULL,
-  hantrad TEXT NOT NULL,
-  hansimp TEXT,
+  hantrad TEXT UNIQUE NOT NULL,
   UNIQUE  (wordid, hanord)
 );
 
@@ -131,11 +152,8 @@ CREATE UNIQUE INDEX ix_han_rec
 CREATE INDEX ix_han_word
   ON han(wordid);
 
-CREATE INDEX ix_han_trad
+CREATE UNIQUE INDEX ix_han_trad
   ON han(hantrad);
-
-CREATE INDEX ix_han_simp
-  ON han(hansimp);
 
 CREATE TABLE pny (
   pnyid   INTEGER PRIMARY KEY ASC,
@@ -190,21 +208,22 @@ CREATE INDEX ix_wc_class
 
 CREATE TABLE dfn (
   dfnid   INTEGER PRIMARY KEY ASC,
-  wordid  INTEGER NOT NULL
-            REFERENCES word(wordid)
+  hanid   INTEGER NOT NULL
+            REFERENCES han(hanid)
               ON DELETE CASCADE
               ON UPDATE CASCADE,
-  dfnsord INTEGER NOT NULL,
-  dfngord INTEGER NOT NULL,
+  dfnomaj INTEGER NOT NULL,
+  dfnomin INTEGER NOT NULL,
+  dfnogls INTEGER NOT NULL,
   dfntext TEXT NOT NULL,
-  UNIQUE  (wordid, dfnsord, dfngord)
+  UNIQUE  (hanid, dfnomaj, dfnomin, dfnogls)
 );
 
 CREATE UNIQUE INDEX ix_dfn_rec
-  ON dfn(wordid, dfnsord, dfngord);
+  ON dfn(hanid, dfnomaj, dfnomin, dfnogls);
 
-CREATE INDEX ix_dfn_word
-  ON dfn(wordid);
+CREATE INDEX ix_dfn_han
+  ON dfn(hanid);
 
 };
 
