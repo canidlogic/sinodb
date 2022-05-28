@@ -44,9 +44,9 @@ binmode(STDERR, ":encoding(UTF-8) :crlf") or
 binmode(STDOUT, ":encoding(UTF-8) :crlf") or
   die "Failed to set UTF-8 output, stopped";
 
-# Assemble the index in a hash
+# Assemble the index in a main hash
 #
-my %dh;
+my %main_hash;
 for(my $ltext = <STDIN>; defined($ltext); $ltext = <STDIN>) {
   # Drop line break
   chomp $ltext;
@@ -63,141 +63,181 @@ for(my $ltext = <STDIN>; defined($ltext); $ltext = <STDIN>) {
   my $val = int($2);
   
   # Add to memory index
-  $dh{$key} = $val;
+  $main_hash{$key} = $val;
 }
 
-# Create tone-less hash without proper names
+# Create a fallback array, where each element is a subarray storing an
+# integer that is 1 for tonal, 0 for toneless, and -1 for no Pinyin, and
+# then a hash reference
 #
-my %tlh;
-for my $k (keys %dh) {
+my @fallback;
+
+# First in the fallback array is everything but proper names from the
+# main hash, with full tones
+#
+my $hr = { };
+for my $k (keys %main_hash) {
   # Skip * keys
   if ($k =~ /\*/) {
     next;
   }
   
-  # Decompose Unicode in key
-  my $kd = NFD($k);
-  
-  # Drop grave accent, acute accent, macron, and caron
-  $kd =~ s/[\x{300}\x{301}\x{304}\x{30c}]//g;
-  
-  # Recompose Unicode
-  $kd = NFC($kd);
-  
-  # Get value
-  my $val = $dh{$k};
-  
-  # Add mapping to new hash, setting ambiguous if already ambiguous or
-  # if there is a current value that is different
-  if (defined $tlh{$kd}) {
-    # Defined -- if current value is different, change to ambiguous
-    if ($tlh{$kd} != $val) {
-      $tlh{$kd} = -1;
-    }
-    
-  } else {
-    # Not defined yet, so enter new record
-    $tlh{$kd} = $val;
-  }
+  # Add mapping
+  $hr->{$k} = $main_hash{$k};
 }
+push @fallback, ([1, $hr]);
 
-# Create tone-less hash of proper names
+# Second in the fallback array is proper names from the main hash, with
+# full tones
 #
-my %tln;
-for my $k (keys %dh) {
-  # Skip keys without *
+$hr = { };
+for my $k (keys %main_hash) {
+  # Skip all but * keys
   unless ($k =~ /\*/) {
     next;
   }
   
-  # Decompose Unicode in key
-  my $kd = NFD($k);
+  # Modified key
+  my $mk = $k;
+  $mk =~ s/\*//g;
   
-  # Drop grave accent, acute accent, macron, and caron
-  $kd =~ s/[\x{300}\x{301}\x{304}\x{30c}]//g;
-  
-  # Recompose Unicode
-  $kd = NFC($kd);
-  
-  # Drop the asterisk
-  $kd =~ s/\*//g;
-  
-  # Get value
-  my $val = $dh{$k};
-  
-  # Add mapping to new hash, setting ambiguous if already ambiguous or
-  # if there is a current value that is different
-  if (defined $tln{$kd}) {
-    # Defined -- if current value is different, change to ambiguous
-    if ($tln{$kd} != $val) {
-      $tln{$kd} = -1;
-    }
-    
-  } else {
-    # Not defined yet, so enter new record
-    $tln{$kd} = $val;
-  }
+  # Add mapping
+  $hr->{$mk} = $main_hash{$k};
 }
+push @fallback, ([1, $hr]);
 
-# Create hash of just traditional characters, excluding proper names
+# Third in the fallback array is anything but proper names from the main
+# hash, with no tones
 #
-my %tch;
-for my $k (keys %dh) {
+$hr = { };
+for my $k (keys %main_hash) {
   # Skip * keys
   if ($k =~ /\*/) {
     next;
   }
   
-  # Get abbreviated key
-  ($k =~ /\A([^ ]+)/) or die "Unexpected";
-  my $kd = $1;
+  # Modified key
+  my $mk = $k;
+  $mk = NFD($mk);
+  $mk =~ s/[\x{300}\x{301}\x{304}\x{30c}]//g;
+  $mk = NFC($mk);
   
   # Get value
-  my $val = $dh{$k};
+  my $val = $main_hash{$k};
   
   # Add mapping to new hash, setting ambiguous if already ambiguous or
   # if there is a current value that is different
-  if (defined $tch{$kd}) {
+  if (defined $hr->{$mk}) {
     # Defined -- if current value is different, change to ambiguous
-    if ($tch{$kd} != $val) {
-      $tch{$kd} = -1;
+    if ($hr->{$mk} != $val) {
+      $hr->{$mk} = -1;
     }
     
   } else {
     # Not defined yet, so enter new record
-    $tch{$kd} = $val;
+    $hr->{$mk} = $val;
   }
 }
+push @fallback, ([0, $hr]);
 
-# Create hash of just traditional characters, proper names
+# Fourth in the fallback array is proper names from the main hash, with
+# no tones
 #
-my %tcn;
-for my $k (keys %dh) {
-  # Skip keys without *
+$hr = { };
+for my $k (keys %main_hash) {
+  # Skip everything but * keys
   unless ($k =~ /\*/) {
     next;
   }
   
-  # Get abbreviated key
-  ($k =~ /\A([^ ]+)/) or die "Unexpected";
-  my $kd = $1;
+  # Modified key
+  my $mk = $k;
+  $mk =~ s/\*//g;
+  $mk = NFD($mk);
+  $mk =~ s/[\x{300}\x{301}\x{304}\x{30c}]//g;
+  $mk = NFC($mk);
   
   # Get value
-  my $val = $dh{$k};
+  my $val = $main_hash{$k};
   
   # Add mapping to new hash, setting ambiguous if already ambiguous or
   # if there is a current value that is different
-  if (defined $tcn{$kd}) {
+  if (defined $hr->{$mk}) {
     # Defined -- if current value is different, change to ambiguous
-    if ($tcn{$kd} != $val) {
-      $tcn{$kd} = -1;
+    if ($hr->{$mk} != $val) {
+      $hr->{$mk} = -1;
     }
     
   } else {
     # Not defined yet, so enter new record
-    $tcn{$kd} = $val;
+    $hr->{$mk} = $val;
   }
 }
+push @fallback, ([0, $hr]);
+
+# Fifth in the fallback array is anything but proper names from the main
+# hash, with no Pinyin
+#
+$hr = { };
+for my $k (keys %main_hash) {
+  # Skip * keys
+  if ($k =~ /\*/) {
+    next;
+  }
+  
+  # Modified key
+  ($k =~ /\A([^ ]+)/) or die "Unexpected";
+  my $mk = $1;
+  
+  # Get value
+  my $val = $main_hash{$k};
+  
+  # Add mapping to new hash, setting ambiguous if already ambiguous or
+  # if there is a current value that is different
+  if (defined $hr->{$mk}) {
+    # Defined -- if current value is different, change to ambiguous
+    if ($hr->{$mk} != $val) {
+      $hr->{$mk} = -1;
+    }
+    
+  } else {
+    # Not defined yet, so enter new record
+    $hr->{$mk} = $val;
+  }
+}
+push @fallback, ([-1, $hr]);
+
+# Sixth in the fallback array is proper names from the main hash, with
+# no Pinyin
+#
+$hr = { };
+for my $k (keys %main_hash) {
+  # Skip everything but * keys
+  unless ($k =~ /\*/) {
+    next;
+  }
+  
+  # Modified key
+  ($k =~ /\A([^ ]+)/) or die "Unexpected";
+  my $mk = $1;
+  
+  # Get value
+  my $val = $main_hash{$k};
+  
+  # Add mapping to new hash, setting ambiguous if already ambiguous or
+  # if there is a current value that is different
+  if (defined $hr->{$mk}) {
+    # Defined -- if current value is different, change to ambiguous
+    if ($hr->{$mk} != $val) {
+      $hr->{$mk} = -1;
+    }
+    
+  } else {
+    # Not defined yet, so enter new record
+    $hr->{$mk} = $val;
+  }
+}
+push @fallback, ([-1, $hr]);
 
 # Open database connection to existing database
 #
@@ -266,132 +306,51 @@ for my $word (@$words) {
     }
   }
   
-  # Go through all traditional/Pinyin combinations, figuring out all
-  # unique, non-ambiguous line numbers, using toneless mapping
+  # Generate all possible tonal combinations
+  my @tonals;
+  for(my $x = 0; $x <= $#tcs; $x++) {
+    for(my $y = 0; $y <= $#pys; $y++) {
+      push @tonals, ($tcs[$x] . ' ' . $pys[$y]);
+    }
+  }
+  
+  # Generate all possible toneless combinations
+  my @toneless;
+  for(my $x = 0; $x <= $#tcs; $x++) {
+    for(my $y = 0; $y <= $#pyu; $y++) {
+      push @toneless, ($tcs[$x] . ' ' . $pyu[$y]);
+    }
+  }
+  
+  # Go through fallback list until we get at least one result or get
+  # through the whole list
   my @result;
-  for(my $j = 0; $j <= $#tcs; $j++) {
-    for(my $i = 0; $i <= $#pyu; $i++) {
+  for my $fba (@fallback) {
+    # Determine correct keylist for this hash
+    my $keylistr;
+    if ($fba->[0] > 0) {
+      $keylistr = \@tonals;
       
-      # Generate the appropriate key
-      my $genkey;
-      $genkey = "$tcs[$j] $pyu[$i]";
-
-      # Look up in index
-      if (defined $tlh{$genkey}) {
-        if ($tlh{$genkey} != -1) {
-          my $already = 0;
-          for my $z (@result) {
-            if ($z == $tlh{$genkey}) {
-              $already = 1;
-              last;
-            }
-          }
-          unless ($already) {
-            push @result, ($tlh{$genkey});
-          }
-        }
+    } elsif ($fba->[0] == 0) {
+      $keylistr = \@toneless;
+      
+    } elsif ($fba->[0] < 0) {
+      $keylistr = \@tcs;
+      
+    } else {
+      die "Unexpected";
+    }
+    
+    # Look for everything in the keylist and add to results
+    for my $checkval (@$keylistr) {
+      if (defined($fba->[1]->{$checkval})) {
+        push @result, ($fba->[1]->{$checkval});
       }
     }
-  }
-  
-  # If we didn't get exactly one result from that, run it again this
-  # time using the tones
-  unless ($#result == 0) {
-    @result = ();
-    for(my $j = 0; $j <= $#tcs; $j++) {
-      for(my $i = 0; $i <= $#pys; $i++) {
-        
-        # Generate the appropriate key
-        my $genkey;
-        $genkey = "$tcs[$j] $pys[$i]";
-  
-        # Look up in index
-        if (defined $dh{$genkey}) {
-          if ($dh{$genkey} != -1) {
-            my $already = 0;
-            for my $z (@result) {
-              if ($z == $dh{$genkey}) {
-                $already = 1;
-                last;
-              }
-            }
-            unless ($already) {
-              push @result, ($dh{$genkey});
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  # If we don't have any results, do a proper name query without tones
-  if ($#result < 0) {
-    for(my $j = 0; $j <= $#tcs; $j++) {
-      for(my $i = 0; $i <= $#pyu; $i++) {
-        
-        # Generate the appropriate key
-        my $genkey;
-        $genkey = "$tcs[$j] $pyu[$i]";
-  
-        # Look up in index
-        if (defined $tln{$genkey}) {
-          if ($tln{$genkey} != -1) {
-            my $already = 0;
-            for my $z (@result) {
-              if ($z == $tln{$genkey}) {
-                $already = 1;
-                last;
-              }
-            }
-            unless ($already) {
-              push @result, ($tln{$genkey});
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  # If we still don't have any results, query by traditional characters
-  # only
-  if ($#result < 0) {
-    for(my $i = 0; $i <= $#tcs; $i++) {
-      my $genkey = $tcs[$i];
-      if (defined $tch{$genkey}) {
-        if ($tch{$genkey} != -1) {
-          my $already = 0;
-          for my $z (@result) {
-            if ($z == $tch{$genkey}) {
-              $already = 1;
-              last;
-            }
-          }
-          unless ($already) {
-            push @result, ($tch{$genkey});
-          }
-        }
-      }
-    }
-  }
-  
-  # Last attempt, query by traditional characters only, proper names
-  if ($#result < 0) {
-    for(my $i = 0; $i <= $#tcs; $i++) {
-      my $genkey = $tcs[$i];
-      if (defined $tcn{$genkey}) {
-        if ($tcn{$genkey} != -1) {
-          my $already = 0;
-          for my $z (@result) {
-            if ($z == $tcn{$genkey}) {
-              $already = 1;
-              last;
-            }
-          }
-          unless ($already) {
-            push @result, ($tcn{$genkey});
-          }
-        }
-      }
+    
+    # If results are non-empty, no need to fallback further
+    if ($#result >= 0) {
+      last;
     }
   }
   
