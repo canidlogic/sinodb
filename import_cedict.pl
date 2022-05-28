@@ -33,10 +33,8 @@ in the database!
 
 This iterates through every record in CC-CEDICT.  For each record, check
 whether its traditional character rendering matches something in the
-C<han> table.  If it does, then the record's glosses will be imported,
-using a major order number unique to this particular record.  The senses
-and glosses will be separated into records using the ordering system of
-the table; see C<createdb.pl> for further information.
+C<han> table.  If it does, then the record data will be imported and
+linked properly within the Sino database.
 
 =cut
 
@@ -73,28 +71,49 @@ while ($dict->advance) {
   (ref($qr) eq 'ARRAY') or next;
   my $hanid = $qr->[0];
   
-  # Determine the major order number for this dictionary record as one
+  # Determine the mpy order number for this dictionary record as one
   # greater than the previous for this Han character, or 1 if no
   # previous
-  my $major_order = 1;
+  my $mpy_order = 1;
   $qr = $dbh->selectrow_arrayref(
-          'SELECT dfnomaj FROM dfn WHERE hanid=? '
-          . 'ORDER BY dfnomaj DESC',
+          'SELECT mpyord FROM mpy WHERE hanid=? '
+          . 'ORDER BY mpyord DESC',
           undef,
           $hanid);
   if (ref($qr) eq 'ARRAY') {
-    $major_order = $qr->[0] + 1;
+    $mpy_order = $qr->[0] + 1;
   }
   
-  # Start the minor order counter at zero so that the first sense will
-  # take minor order one
-  my $minor_order = 0;
+  # Insert the mpy record for this dictionary record, also including the
+  # simplified rendering and the CC-CEDICT Pinyin
+  $dbh->do(
+        'INSERT INTO mpy(hanid, mpyord, mpysimp, mpypny) '
+        . 'VALUES (?,?,?,?)',
+        undef,
+        $hanid, $mpy_order,
+        encode('UTF-8', $dict->simplified,
+                    Encode::FB_CROAK | Encode::LEAVE_SRC),
+        encode('UTF-8', join(' ', $dict->pinyin),
+                    Encode::FB_CROAK | Encode::LEAVE_SRC));
+  
+  # Get the ID of the mpy record we just inserted
+  my $mpy_id;
+  $qr = $dbh->selectrow_arrayref(
+              'SELECT mpyid FROM mpy WHERE hanid=? AND mpyord=?',
+              undef,
+              $hanid, $mpy_order);
+  (ref($qr) eq 'ARRAY') or die "Unexpected";
+  $mpy_id = $qr->[0];
+  
+  # Start the sense order counter at zero so that the first sense will
+  # take sense order one
+  my $sense_order = 0;
   
   # Go through all the senses
   for my $sense ($dict->senses) {
     
-    # Increment the minor order
-    $minor_order++;
+    # Increment the sense order
+    $sense_order++;
     
     # Start the gloss order counter at zero so that the first gloss will
     # take gloss order one
@@ -113,12 +132,11 @@ while ($dict->advance) {
       # Add this gloss to the database
       $dbh->do(
               'INSERT INTO dfn'
-              . '(hanid, dfnomaj, dfnomin, dfnogls, dfntext) '
-              . 'VALUES (?,?,?,?,?)',
+              . '(mpyid, dfnosen, dfnogls, dfntext) '
+              . 'VALUES (?,?,?,?)',
               undef,
-                $hanid,
-                $major_order,
-                $minor_order,
+                $mpy_id,
+                $sense_order,
                 $gloss_order,
                 $gle);
     }
