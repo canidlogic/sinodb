@@ -72,7 +72,7 @@ One or more whitespace characters
 
 =back
 
-The actual reference has three possible formats.  All of these formats
+The actual reference has four possible formats.  All of these formats
 make reference to a I<C-Char>.  A C-Char is defined as all codepoints in
 Unicode General Category Lo (Letter-Other), as well as the CJK Symbols
 and Punctuation block [U+3000, U+303F] and the Geometric Shapes block
@@ -83,13 +83,13 @@ The first reference format is as follows:
 =over 4
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =item *
 Any C-Char codepoint
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =item *
 Sequence of zero or more whitespace characters
@@ -105,72 +105,106 @@ Right square bracket C<]>
 
 =back
 
-For this reference format, the opening sequence of non-whitespace (which
-includes at least one C-Char) is a Han-character rendering, and
-everything between the square brackets is a Pinyin rendering of that
-Han-character reference.
-
 The second reference format is as follows:
 
 =over 4
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =item *
 Any C-Char codepoint
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
+
+=item *
+Vertical bar C<|>
+
+=item *
+Sequence of zero or more non-whitespace characters excluding C<|,>
+
+=item *
+Any C-Char codepoint
+
+=item *
+Sequence of zero or more non-whitespace characters excluding C<|,>
+
+=item *
+Sequence of zero or more whitespace characters
+
+=item *
+Left square bracket C<[>
+
+=item *
+Sequence of zero or more characters excluding square brackets C<[]>
+
+=item *
+Right square bracket C<]>
 
 =back
+
+For these first two reference formats, the opening sequence(s) of
+non-whitespace (which include at least one C-Char) are Han-character
+rendering(s), and everything between the square brackets is a Pinyin
+rendering of that Han-character reference.  When two Han-character
+renderings are given, the first is traditional and the second
+simplified; else, both traditional and simplified are the same.
 
 The third reference format is as follows:
 
 =over 4
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =item *
 Any C-Char codepoint
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
+
+=back
+
+The fourth reference format is as follows:
+
+=over 4
+
+=item *
+Sequence of zero or more non-whitespace characters excluding C<|,>
+
+=item *
+Any C-Char codepoint
+
+=item *
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =item *
 Vertical bar C<|>
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =item *
 Any C-Char codepoint
 
 =item *
-Sequence of zero or more non-whitespace characters
+Sequence of zero or more non-whitespace characters excluding C<|,>
 
 =back
 
-The second and third reference formats include only Han character
-renderings without any Pinyin.  The second format includes a single
+The third and fourth reference formats include only Han character
+renderings without any Pinyin.  The third format includes a single
 sequence of non-whitespace characters with at least one C-Char that
-specifies the Han character rendering.  The third format includes two
-sequences of non-whitespace characters separated by a vertical bar,
-specifying the traditional and simplified renderings.
+specifies both the Han traditional and simplified.  The fourth format
+includes two sequences of non-whitespace characters separated by a
+vertical bar, specifying the traditional and simplified renderings.
 
 =cut
 
 # ==================
 # Program entrypoint
 # ==================
-
-# Switch output to UTF-8
-#
-binmode(STDERR, ":encoding(UTF-8)") or
-  die "Failed to set UTF-8 output, stopped";
-binmode(STDOUT, ":encoding(UTF-8)") or
-  die "Failed to set UTF-8 output, stopped";
 
 # Check that no arguments
 #
