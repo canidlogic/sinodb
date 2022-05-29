@@ -111,11 +111,16 @@ table allows for multiple definitions for each Han reading, with
 `mpyord` used to order each of these definition records.
 
 This table also stores additional data from the CC-CEDICT dictionary
-that is specific to individual records.  The `mpysimp` field stores the
-simplified-character Han reading.  The `mpypny` field stores the Pinyin
-from CC-CEDICT.  Note that this Pinyin is in a different format than is
-used in the `pny` table, and also note that mainland pronunciations are
-used instead of Taiwan Mandarin.
+that is specific to individual records.  The `mpytrad` and `mpysimp`
+fields store the traditional-character and simplified-character Han
+readings.  The `mpypny` field stores the Pinyin from CC-CEDICT.  Note
+that this Pinyin is in a different format than is used in the `pny`
+table, and also note that mainland pronunciations are used instead of
+Taiwan Mandarin.
+
+In a few cases, the TOCFL/COCT word list uses Han forms that are
+considered simplified in CC-CEDICT, so in those cases the Han from the
+`han` table will match with `mpysimp` instead of with `mpytrad`.
 
 ## dfn table
 
