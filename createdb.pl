@@ -119,11 +119,16 @@ table allows for multiple definitions for each Han reading, with
 C<mpyord> used to order each of these definition records.
 
 This table also stores additional data from the CC-CEDICT dictionary
-that is specific to individual records.  The C<mpysimp> field stores the
-simplified-character Han reading.  The C<mpypny> field stores the Pinyin
-from CC-CEDICT.  Note that this Pinyin is in a different format than is
-used in the C<pny> table, and also note that mainland pronunciations are
-used instead of Taiwan Mandarin.
+that is specific to individual records.  The C<mpytrad> and C<mpysimp>
+fields store the traditional-character and simplified-character Han
+readings.  The C<mpypny> field stores the Pinyin from CC-CEDICT.  Note
+that this Pinyin is in a different format than is used in the C<pny>
+table, and also note that mainland pronunciations are used instead of
+Taiwan Mandarin.
+
+In a few cases, the TOCFL/COCT word list uses Han forms that are
+considered simplified in CC-CEDICT, so in those cases the Han from the
+C<han> table will match with C<mpysimp> instead of with C<mpytrad>.
 
 =head2 dfn table
 
@@ -230,6 +235,7 @@ CREATE TABLE mpy (
               ON DELETE CASCADE
               ON UPDATE CASCADE,
   mpyord  INTEGER NOT NULL,
+  mpytrad TEXT NOT NULL,
   mpysimp TEXT NOT NULL,
   mpypny  TEXT NOT NULL,
   UNIQUE  (hanid, mpyord)
@@ -240,6 +246,9 @@ CREATE UNIQUE INDEX ix_mpy_rec
 
 CREATE INDEX ix_mpy_han
   ON mpy(hanid);
+
+CREATE INDEX ix_mpy_trad
+  ON mpy(mpytrad);
 
 CREATE INDEX ix_mpy_simp
   ON mpy(mpysimp);
