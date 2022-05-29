@@ -11,10 +11,10 @@ import\_cedict.pl - Import data from CC-CEDICT into the Sino database.
 This script is used to fill a Sino database with information derived
 from the CC-CEDICT data file.  
 
-This script should be your third step after using `createdb.pl` to
-create an empty Sino database and `import_tocfl.pl` to add the TOCFL
-data.  You must have at least one word defined already in the database
-or this script will fail.
+This script should be your fourth step after using `createdb.pl` to
+create an empty Sino database, `import_tocfl.pl` to add the TOCFL
+data, and `import_coct.pl` to add the COCT data.  You must have at
+least one word defined already in the database or this script will fail.
 
 This iterates through every record in CC-CEDICT.  For each record, check
 whether its traditional character rendering matches something in the
