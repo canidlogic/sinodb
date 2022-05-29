@@ -47,3 +47,5 @@ According to a technical note distributed along with the TOCFL data, COCT level 
 Within the word data field, variant parentheses `U+FF08` and `U+FF09` must be changed to regular ASCII parentheses `(` and `)` respectively, and variant slash `U+FF0F` must be changed to regular ASCII forward slash `/`
 
 Each word data field might expand to multiple words.  First of all, if there are forward slashes, divide into separate components using the forward slash.  Second of all, if there is a character in parentheses within any component, expand that component into two alternatives, one without the character in parentheses and the other with.
+
+Words might have a sequence of decimal digits after them which are an index into a phonetic readings array we will not be using.  These digits should be dropped when they occur.
