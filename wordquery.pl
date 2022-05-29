@@ -204,7 +204,7 @@ for my $word_id (@word_list) {
     # Get all major definitions of this Han reading
     my @mopy;
     $qr = $dbh->selectall_arrayref(
-                'SELECT mpyid, mpysimp, mpypny '
+                'SELECT mpyid, mpytrad, mpysimp, mpypny '
                 . 'FROM mpy WHERE hanid=? ORDER BY mpyord ASC',
                 undef,
                 $han_id);
@@ -215,6 +215,8 @@ for my $word_id (@word_list) {
             decode('UTF-8', $r->[1],
                     Encode::FB_CROAK | Encode::LEAVE_SRC),
             decode('UTF-8', $r->[2],
+                    Encode::FB_CROAK | Encode::LEAVE_SRC),
+            decode('UTF-8', $r->[3],
                     Encode::FB_CROAK | Encode::LEAVE_SRC)]);
       }
     }
@@ -222,13 +224,14 @@ for my $word_id (@word_list) {
     # Print all major definitions
     if ($#mopy >= 0) {
       for my $mpa (@mopy) {
-        # Get major ID, simplified rendering, and Pinyin
+        # Get major ID, traditional/simplified renderings, and Pinyin
         my $mpy_id   = $mpa->[0];
-        my $mpy_simp = $mpa->[1];
-        my $mpy_pny  = $mpa->[2];
+        my $mpy_trad = $mpa->[1];
+        my $mpy_simp = $mpa->[2];
+        my $mpy_pny  = $mpa->[3];
         
         # Print major definition header
-        print "    + $han_trad|$mpy_simp $mpy_pny\n";
+        print "    + $mpy_trad|$mpy_simp $mpy_pny\n";
         
         # Get all glosses for this major definition
         $qr = $dbh->selectall_arrayref(
