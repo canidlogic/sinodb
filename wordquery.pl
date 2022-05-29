@@ -272,12 +272,7 @@ for my $word_id (@word_list) {
     } else {
       print "\n";
     }
-    
-    # @@TODO:
   }
-  
-  # @@TODO:
-  
 }
 
 # If we got here, commit the transaction
