@@ -16,10 +16,26 @@ create an empty Sino database, `import_tocfl.pl` to add the TOCFL
 data, and `import_coct.pl` to add the COCT data.  You must have at
 least one word defined already in the database or this script will fail.
 
-This iterates through every record in CC-CEDICT.  For each record, check
-whether its traditional character rendering matches something in the
-`han` table.  If it does, then the record data will be imported and
-linked properly within the Sino database.
+This iterates through every record in CC-CEDICT in two passes.  In the
+first pass, for each record, check whether its traditional character
+rendering matches something in the `han` table.  If it does, then the
+record data will be imported and linked properly within the Sino
+database.
+
+In the second pass, check for the situation of words that didn't get any
+entry in the `mpy` table after the first pass because their Han
+rendering is recorded in the CC-CEDICT data file as a simplified
+rendering rather than a traditional one.  Go through the CC-CEDICT
+again, but this time check whether the CC-CEDICT's record _simplified_
+rendering matches something in the `han` table _and_ that whatever it
+matches either belongs to a word for which there are no `dfn` records
+for any of its Han renderings yet or the word is recorded in the
+simplified words hash.  Add glosses of such records to the database, and
+also add the word to the simplified words hash so that other simplified
+records matching it can be picked up.
+
+At the end of the script, the IDs of all of the simplified words that
+were used in the second pass are reported.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
