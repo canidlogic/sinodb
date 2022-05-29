@@ -8,9 +8,9 @@ Before using the main scripts provided by this project, you must configure the s
 
 ## Step 1: Assembling data files
 
-The data files you need are the TOCFL vocabulary list (8000-word list), and the CC-CEDICT dictionary.  The following subsections describe how to obtain these data files in further detail.
+The data files you need are the TOCFL vocabulary list (8000-word list), the COCT vocabulary list (14,470 words), and the CC-CEDICT dictionary.  The following subsections describe how to obtain these data files in further detail.
 
-### TOCFL dataset
+### TOCFL vocabulary list
 
 The TOCFL source vocabulary list can be downloaded from the following site:
 
@@ -19,6 +19,10 @@ The TOCFL source vocabulary list can be downloaded from the following site:
 Follow the link 華語八千詞表 (Chinese language 8000 word list) to download an archive named something like `8000zhuyin_202204.rar`  The archive uses the proprietary RAR archive format, so you may need to use an online converter to convert the file into a non-proprietary archive format if you have troubles opening the archive.
 
 Within this archive, there should be a large Excel spreadsheet.  This spreadsheet has the TOCFL "8000-word" vocabulary lists, with one spreadsheet tab for each vocabulary level.  Using LibreOffice Calc or some other spreadsheet program, copy each vocabulary list /excluding the header rows/ to a new spreadsheet and then save that spreadsheet copy in Comma-Separated Value (CSV) format, using commas as the separator, no quoting, and UTF-8 encoding.  As a result, you should end up with seven CSV text files corresponding to each of the vocabulary levels within the spreadsheet.  The CSV files must /not/ have a header row with column names; if they do, manually delete the header rows.
+
+### COCT vocabulary list
+
+See `COCT.md` for instructions about obtaining the COCT vocabulary list and preparing it in a CSV format that can be imported by Sino.
 
 ### CC-CEDICT dictionary
 
@@ -42,10 +46,12 @@ The configuration file should look like this:
     our @EXPORT = qw(
                     $config_dbpath
                     $config_dictpath
+                    $config_coctpath
                     $config_tocfl);
     
     $config_dbpath = '/example/path/to/db.sqlite';
     $config_dictpath = '/example/path/to/cedict.txt';
+    $config_coctpath = '/example/path/to/coct.csv';
     $config_tocfl = [
       '/example/path/to/tocfl/Novice1.csv',
       '/example/path/to/tocfl/Novice2.csv',
