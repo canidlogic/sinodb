@@ -6,6 +6,10 @@ glosses for any of their Han renderings.
 # SYNOPSIS
 
     ./nogloss.pl
+    ./nogloss.pl -min 4
+    ./nogloss.pl -max 2
+    ./nogloss.pl -multi
+    ./nogloss.pl -level 1
 
 # DESCRIPTION
 
@@ -14,6 +18,23 @@ it checks whether the word has at least one Han rendering that has an
 entry in the `mpy` major definition table which has at least one gloss
 in the `dfn` table.  The IDs of any words that don't have a single
 gloss are reported.
+
+The `-multi` option, if provided, specifies that only records that have
+at least two Han renderings should be checked.
+
+The `-level` option, if specified, specifies that only records that
+have a word level matching the given level are considered.
+
+The `-min` option, if provided, specifies the minimum number of
+characters at least one of the Han renderings must have for the record
+to be checked.  If not provided, a default of zero is assumed.
+
+The `-max` option, if provided, specifies the maximum number of
+characters _all_ Han renderings must have for the record to be checked.
+If not provided, an undefined default is left that indicates there is no
+maximum.
+
+You can mix these options any way you wish.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
