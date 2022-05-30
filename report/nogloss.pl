@@ -2,6 +2,9 @@
 use strict;
 use warnings;
 
+# Core dependencies
+use Encode qw(decode);
+
 # Sino imports
 use Sino::DB;
 use SinoConfig;
@@ -14,6 +17,10 @@ glosses for any of their Han renderings.
 =head1 SYNOPSIS
 
   ./nogloss.pl
+  ./nogloss.pl -min 4
+  ./nogloss.pl -max 2
+  ./nogloss.pl -multi
+  ./nogloss.pl -level 1
 
 =head1 DESCRIPTION
 
@@ -22,6 +29,23 @@ it checks whether the word has at least one Han rendering that has an
 entry in the C<mpy> major definition table which has at least one gloss
 in the C<dfn> table.  The IDs of any words that don't have a single
 gloss are reported.
+
+The C<-multi> option, if provided, specifies that only records that have
+at least two Han renderings should be checked.
+
+The C<-level> option, if specified, specifies that only records that
+have a word level matching the given level are considered.
+
+The C<-min> option, if provided, specifies the minimum number of
+characters at least one of the Han renderings must have for the record
+to be checked.  If not provided, a default of zero is assumed.
+
+The C<-max> option, if provided, specifies the maximum number of
+characters I<all> Han renderings must have for the record to be checked.
+If not provided, an undefined default is left that indicates there is no
+maximum.
+
+You can mix these options any way you wish.
 
 See C<config.md> in the C<doc> directory for configuration you must do
 before using this script.
@@ -32,9 +56,54 @@ before using this script.
 # Program entrypoint
 # ==================
 
-# Make sure no program arguments
+# Parse options
 #
-($#ARGV < 0) or die "No expecting program arguments, stopped";
+my $min_filter   = undef;
+my $max_filter   = undef;
+my $level_filter = undef;
+my $multi_flag = 0;
+
+for(my $i = 0; $i <= $#ARGV; $i++) {
+  if ($ARGV[$i] eq '-min') {
+    ($i < $#ARGV) or die "-min requires argument, stopped";
+    $i++;
+    ($ARGV[$i] =~ /\A[0-9]+\z/) or
+      die "Invalid parameter for -min, stopped";
+    (not defined $min_filter) or
+      die "Can't use -min option multiple times, stopped";
+    $min_filter = int($ARGV[$i]);
+    
+  } elsif ($ARGV[$i] eq '-max') {
+    ($i < $#ARGV) or die "-max requires argument, stopped";
+    $i++;
+    ($ARGV[$i] =~ /\A[0-9]+\z/) or
+      die "Invalid parameter for -max, stopped";
+    (not defined $max_filter) or
+      die "Can't use -max option multiple times, stopped";
+    $max_filter = int($ARGV[$i]);
+  
+  } elsif ($ARGV[$i] eq '-level') {
+    ($i < $#ARGV) or die "-level requires argument, stopped";
+    $i++;
+    ($ARGV[$i] =~ /\A[0-9]+\z/) or
+      die "Invalid parameter for -level, stopped";
+    (not defined $level_filter) or
+      die "Can't use -level option multiple times, stopped";
+    $level_filter = int($ARGV[$i]);
+  
+  } elsif ($ARGV[$i] eq '-multi') {
+    $multi_flag = 1;
+    
+  } else {
+    die "Unrecognized option '$ARGV[$i]', stopped";
+  }
+}
+
+# Set defaults for undefined options
+#
+unless (defined $min_filter) {
+  $min_filter = 0;
+}
 
 # Open database connection to existing database
 #
@@ -44,16 +113,26 @@ my $dbc = Sino::DB->connect($config_dbpath, 0);
 #
 my $dbh = $dbc->beginWork('r');
 
-# Get all the word IDs in the database
+# Get all the word IDs in the database, filtering by level here if that
+# was specified
 #
 my @word_list;
 
 my $qr = $dbh->selectall_arrayref(
-          'SELECT wordid FROM word ORDER BY wordid ASC');
+          'SELECT wordid, wordlevel FROM word ORDER BY wordid ASC');
 (ref($qr) eq 'ARRAY') or die "No words in database, stopped";
 
 for my $r (@$qr) {
-  push @word_list, ( $r->[0] );
+  my $use_word = 1;
+  if (defined $level_filter) {
+    unless ($r->[1] == $level_filter) {
+      $use_word = 0;
+    }
+  }
+  
+  if ($use_word) {
+    push @word_list, ( $r->[0] );
+  }
 }
 
 # Go through all words
@@ -63,18 +142,50 @@ for my $word_id (@word_list) {
   # Set the has_gloss flag to zero initially for this word
   my $has_gloss = 0;
   
-  # Get all the hanids associated with this word
+  # Get all the hanids and hantrads associated with this word
   my @hans;
+  my @hantrads;
   
   $qr = $dbh->selectall_arrayref(
-          'SELECT hanid FROM han WHERE wordid=?',
+          'SELECT hanid, hantrad FROM han WHERE wordid=?',
           undef,
           $word_id);
   
   if (ref($qr) eq 'ARRAY') {
     for my $r (@$qr) {
       push @hans, ( $r->[0] );
+      push @hantrads, ( 
+        decode('UTF-8', $r->[1],
+                Encode::FB_CROAK | Encode::LEAVE_SRC)
+      );
     }
+  }
+  
+  # If multi flag is on, ignore unless at least two Han renderings
+  if ($multi_flag) {
+    ($#hans >= 1) or next;
+  }
+  
+  # Check that at least one Han rendering has the minimum length
+  my $meets_minimum = 0;
+  for my $han (@hantrads) {
+    if (length($han) >= $min_filter) {
+      $meets_minimum = 1;
+      last;
+    }
+  }
+  ($meets_minimum) or next;
+  
+  # If max limit defined, check that all Han renderings meet it
+  if (defined $max_filter) {
+    my $meets_maximum = 1;
+    for my $han (@hantrads) {
+      unless (length($han) <= $max_filter) {
+        $meets_maximum = 0;
+        last;
+      }
+    }
+    ($meets_maximum) or next;
   }
   
   # Go through all the hanids
