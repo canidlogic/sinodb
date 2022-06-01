@@ -9,6 +9,7 @@ After proper configuration, you do the following to build the SQLite database:
     ./createdb.pl
     ./import_tocfl.pl
     ./import_coct.pl
+    ./import_extra.pl
     ./import_cedict.pl
 
 The import scripts may take quite a while!  Also, be sure to run the scripts in the exact order shown above.
