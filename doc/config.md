@@ -49,6 +49,7 @@ The configuration file should look like this:
     
     our @EXPORT = qw(
                     $config_dbpath
+                    $config_datasets
                     $config_dictpath
                     $config_coctpath
                     $config_tocfl);
