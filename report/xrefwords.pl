@@ -22,7 +22,7 @@ the database so that all cross-references can resolve.
 
 =head1 DESCRIPTION
 
-The script defines four word hashes:  the I<done hash>, the <extra
+The script defines four word hashes:  the I<done hash>, the I<extra
 hash>, the I<next hash>, and the I<current hash>.  Each hash maps
 traditional Han renderings to an integer value of one, such that they
 behave like sets of Han readings.
