@@ -8,7 +8,9 @@ Sino::Util - Utility functions for Sino.
           han_exmap
           pinyin_count
           han_count
-          parse_measures);
+          parse_measures
+          extract_pronunciation
+          extract_xref);
     
     # Check whether a Han sequence has an exception Pinyin mapping
     my $pinyin = han_exmap($han);
