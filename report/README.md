@@ -8,3 +8,4 @@ This directory contains auxiliary scripts.
 - `linescan.pl` - Report lines that use certain codepoints in files
 - `nogloss.pl` - Look for words lacking any gloss
 - `ugloss.pl` - Look for glosses containing Unicode or square brackets
+- `xrefwords.pl` - Find extra words by expanding cross-references
