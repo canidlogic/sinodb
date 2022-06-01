@@ -8,7 +8,7 @@ Before using the main scripts provided by this project, you must configure the s
 
 ## Step 1: Assembling data files
 
-The data files you need are the TOCFL vocabulary list (8000-word list), the COCT vocabulary list (14,470 words), and the CC-CEDICT dictionary.  The following subsections describe how to obtain these data files in further detail.
+The data files you need are the TOCFL vocabulary list (8000-word list), the COCT vocabulary list (14,470 words), the CC-CEDICT dictionary, and the supplemental datasets.  The following subsections describe how to obtain these data files in further detail.
 
 ### TOCFL vocabulary list
 
@@ -34,6 +34,10 @@ There should be links to a file named something like `cedict_1_0_ts_utf-8_mdbg`,
 
 Once you download this file, you need to decompress it into a simple plain-text file.  The Sino scripts will /not/ work on a compressed file.
 
+### Supplemental datasets
+
+The supplemental datasets are contained within the `dataset` directory of this project and are already in the correct format.
+
 ## Step 2: Generating the config module
 
 Once you have assembled all the data files as described in the previous step, you need to create a configuration Perl module that will let Sino know where all of these files are located, and also where you want the SQLite database to be.
@@ -50,6 +54,7 @@ The configuration file should look like this:
                     $config_tocfl);
     
     $config_dbpath = '/example/path/to/db.sqlite';
+    $config_datasets = '/example/path/to/dataset/';
     $config_dictpath = '/example/path/to/cedict.txt';
     $config_coctpath = '/example/path/to/coct.csv';
     $config_tocfl = [
@@ -64,7 +69,7 @@ The configuration file should look like this:
     
     1;
 
-Replace all the example paths in the module shown above with the absolute paths to the data files that you assembled in the preceding step, and set `config_dbpath` to the path where you want the Sino SQLite database to be generated.
+Replace all the example paths in the module shown above with the absolute paths to the data files that you assembled in the preceding step, and set `config_dbpath` to the path where you want the Sino SQLite database to be generated.  The `config_datasets` variable should lead to the `dataset` folder of this project where the supplemental datasets within must have the names defined by this project.  The path in the `config_datasets` variable must include a trailing path separator so that filenames can be directly appended.
 
 You must name this configuration file `SinoConfig.pm`
 
