@@ -27,16 +27,17 @@ the word fields can have multiple values, the word table only stores
 fields that have a single value.  Currently, this is only `wordlevel`,
 which has one of the following values:
 
-     wordlevel | TOCFL level | COCT level
-    ===========+=============+============
-         1     | Novice 1    | / / / / / /
-         2     | Novice 2    |     1
-         3     | Level 1     |     2
-         4     | Level 2     |     3
-         5     | Level 3     |     4
-         6     | Level 4     |     5
-         7     | Level 5     |     6
-         8     | / / / / / / |     7
+     wordlevel | TOCFL level | COCT level |  Special
+    ===========+=============+============+============
+         1     | Novice 1    |     -      |     -
+         2     | Novice 2    |     1      |     -
+         3     | Level 1     |     2      |     -
+         4     | Level 2     |     3      |     -
+         5     | Level 3     |     4      |     -
+         6     | Level 4     |     5      |     -
+         7     | Level 5     |     6      |     -
+         8     |      -      |     7      |     -
+         9     |      -      |     -      | level9.txt 
 
 When different TOCFL source words are merged together in this table, the
 merged word has the minimum wordlevel of the words being merged.
