@@ -7,6 +7,7 @@ use Encode qw(encode);
 
 # Sino imports
 use Sino::DB;
+use Sino::Util qw(parse_blocklist);
 use SinoConfig;
 
 =head1 NAME
@@ -33,6 +34,10 @@ the whole COCT word is skipped.  Otherwise, it is added as a new word
 into the database, with all of the Han readings, and at a level one
 greater than the level in the COCT data file (since COCT levels are one
 higher than TOCFL).
+
+Also, this script will skip all COCT records where I<all> headwords are
+on the blocklist as defined by the C<parse_blocklist> function of
+C<Sino::Util>.
 
 =cut
 
@@ -172,6 +177,10 @@ sub wordid_new {
 #
 (-f $config_coctpath) or
   die "Can't find COCT file '$config_coctpath', stopped";
+
+# Load the blocklist
+#
+my $blocklist = parse_blocklist($config_datasets);
 
 # Open database connection to existing database
 #
@@ -332,6 +341,17 @@ while (my $ltext = readline($fh)) {
     ($fv =~ /\A[\p{Lo}]+\z/) or
       die "Line $lnum: Invalid headword char, stopped";
   }
+  
+  # If all the headwords are on the blocklist, then skip this COCT
+  # record
+  my $is_blocked = 1;
+  for my $hwv (@hws) {
+    unless (defined $blocklist->{$hwv}) {
+      $is_blocked = 0;
+      last;
+    }
+  }
+  (not $is_blocked) or next;
   
   # Look through all the headwords and determine whether any existing
   # words share any of those headwords
