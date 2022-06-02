@@ -23,6 +23,9 @@ rendering matches something in the `han` table.  If it does, then the
 record data will be imported and linked properly within the Sino
 database.
 
+The supplementary definitions is used, so that supplementary definitions
+will be imported by this script if relevant.
+
 In the second pass, check for the situation of words that didn't get any
 entry in the `mpy` table after the first pass because their Han
 rendering is recorded in the CC-CEDICT data file as a simplified
