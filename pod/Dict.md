@@ -10,6 +10,9 @@ Sino::Dict - Parse through the CC-CEDICT data file.
     # Open the data file
     my $dict = Sino::Dict->load($config_dictpath);
     
+    # Add supplementary definitions
+    $dict->supplement($config_datasets);
+    
     # (Re)start an iteration through the dictionary
     $dict->rewind;
     
@@ -64,13 +67,27 @@ before using this module.
     while a parser object is opened.  The destructor for this object will
     close the file handle automatically.
 
-    This constructor does not actually read anything from the file yet.
+    This constructor does not actually read anything from the file yet.  It
+    also does not load any supplementary definitions.  You must call the
+    `supplement` function after construction to do that.
 
 # DESTRUCTOR
 
-The destructor for the parser object closes the file handle.
+The destructor for the parser object closes the file handle(s).
 
 # INSTANCE METHODS
+
+- **supplement($config\_datasets)**
+
+    Add supplementary definitions into the parser, such that the parser will
+    act as if the supplementary definitions file is concatenated to the end
+    of the dictionary file.
+
+    Pass the `config_datasets` variable defined in the `SinoConfig`
+    configuration file.  This will be used to locate the supplementary
+    definitions file.
+
+    If this function is called more than once, subsequent calls are ignored.
 
 - **rewind()**
 
@@ -101,6 +118,9 @@ The destructor for the parser object closes the file handle.
     This function is _much_ faster than just advancing over records,
     because this function will not parse any of the lines it is skipping.
 
+    This function can't be used to seek to lines in the supplement, if a
+    supplement is defined.
+
 - **line\_number()**
 
     Get the current line number in the dictionary file.  After construction
@@ -109,6 +129,9 @@ The destructor for the parser object closes the file handle.
     number of the record that was just read (where the first line is 1).
     After an advance operation that returns false, this will return the line
     number of the last line in the file.
+
+    The behavior of line numbers is unreliable once you are into the
+    supplement file, if a supplement file is defined.
 
 - **advance()**
 
