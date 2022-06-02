@@ -3,6 +3,7 @@ use parent qw(Exporter);
 use strict;
 
 our @EXPORT_OK = qw(
+                  parse_blocklist
                   han_exmap
                   pinyin_count
                   han_count
@@ -20,12 +21,21 @@ Sino::Util - Utility functions for Sino.
 =head1 SYNOPSIS
 
   use Sino::Util qw(
+        parse_blocklist
         han_exmap
         pinyin_count
         han_count
         parse_measures
         extract_pronunciation
         extract_xref);
+  
+  # Get the blocklist with each traditional character in a hash
+  use SinoConfig;
+  my $blocks = parse_blocklist($config_datasets);
+  if (defined $blocks->{$han}) {
+    # $han is in the blocklist
+    ...
+  }
   
   # Check whether a Han sequence has an exception Pinyin mapping
   my $pinyin = han_exmap($han);
@@ -166,6 +176,75 @@ my %HAN_EX = (
 =head1 FUNCTIONS
 
 =over 4
+
+=item B<parse_blocklist($config_datasets)>
+
+Given the path to the datasets directory defined by the configuration
+file in configuration variable C<config_datasets>, read the full
+blocklist file and return a hash reference where the keys are the
+headwords in the blocklist and the values are all one.
+
+=cut
+
+sub parse_blocklist {
+  # Get and check parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  my $datasets_folder = shift;
+  (not ref($datasets_folder)) or die "Wrong parameter type, stopped";
+  
+  # Get the path to the full blocklist
+  my $blocklist_path = $datasets_folder . "blocklist.txt";
+  
+  # Make sure blocklist file exists
+  (-f $blocklist_path) or
+    die "Can't find blocklist '$blocklist_path', stopped";
+  
+  # Open blocklist for reading in UTF-8 and CR+LF translation mode
+  open(my $fh, "< :encoding(UTF-8) :crlf", $blocklist_path) or
+    die "Can't open blocklist file '$blocklist_path', stopped";
+  
+  # Read all records into a hash
+  my %blocklist;
+  my $lnum = 0;
+  while (not eof($fh)) {
+    
+    # Increment line number
+    $lnum++;
+    
+    # Read a line
+    my $ltext = readline($fh);
+    (defined $ltext) or die "I/O error, stopped";
+    
+    # Drop line breaks
+    chomp $ltext;
+    
+    # If this is first line, drop any UTF-8 BOM
+    if ($lnum == 1) {
+      $ltext =~ s/\A\x{feff}//;
+    }
+    
+    # Ignore blank lines
+    (not ($ltext =~ /\A\s*\z/)) or next;
+    
+    # Drop leading and trailing whitespace
+    $ltext =~ s/\A\s+//;
+    $ltext =~ s/\s+\z//;
+    
+    # Make sure we just have a sequence of one or more Letter_other
+    # category codepoints remaining
+    ($ltext =~ /\A[\p{Lo}]+\z/) or
+      die "Blocklist line $lnum: Invalid record, stopped";
+    
+    # Add to blocklist
+    $blocklist{$ltext} = 1;
+  }
+  
+  # Close blocklist file
+  close($fh);
+  
+  # Return reference to blocklist
+  return \%blocklist;
+}
 
 =item B<han_exmap(han)>
 
