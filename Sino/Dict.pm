@@ -16,6 +16,9 @@ Sino::Dict - Parse through the CC-CEDICT data file.
   # Open the data file
   my $dict = Sino::Dict->load($config_dictpath);
   
+  # Add supplementary definitions
+  $dict->supplement($config_datasets);
+  
   # (Re)start an iteration through the dictionary
   $dict->rewind;
   
@@ -72,7 +75,9 @@ is constructed.  Undefined behavior occurs if the data file changes
 while a parser object is opened.  The destructor for this object will
 close the file handle automatically.
 
-This constructor does not actually read anything from the file yet.
+This constructor does not actually read anything from the file yet.  It
+also does not load any supplementary definitions.  You must call the
+C<supplement> function after construction to do that.
 
 =cut
 
@@ -94,11 +99,15 @@ sub load {
   my $self = { };
   bless($self, $class);
   
-  # The '_fh' property will store the file handle
+  # The '_fh' property will store the file handle to the main dicitonary
+  # file
   open(my $fh, '< :encoding(UTF-8) :crlf', $data_path) or
     die "Failed to open file '$data_path', stopped";
   
   $self->{'_fh'} = $fh;
+  
+  # There will be a '_fs' property storing a file handle to the
+  # supplement file, but only after the supplement function is called
   
   # The '_state' property will be -1 for BOF, 0 for record, 1 for EOF
   $self->{'_state'} = -1;
@@ -119,7 +128,7 @@ sub load {
 
 =head1 DESTRUCTOR
 
-The destructor for the parser object closes the file handle.
+The destructor for the parser object closes the file handle(s).
 
 =cut
 
@@ -129,13 +138,61 @@ sub DESTROY {
   (ref($self) and $self->isa(__PACKAGE__)) or
     die "Wrong parameter type, stopped";
   
-  # Close the file handle
+  # Close the file handle(s)
+  if (exists $self->{'_fs'}) {
+    close($self->{'_fs'});
+  }
   close($self->{'_fh'});
 }
 
 =head1 INSTANCE METHODS
 
 =over 4
+
+=item B<supplement($config_datasets)>
+
+Add supplementary definitions into the parser, such that the parser will
+act as if the supplementary definitions file is concatenated to the end
+of the dictionary file.
+
+Pass the C<config_datasets> variable defined in the C<SinoConfig>
+configuration file.  This will be used to locate the supplementary
+definitions file.
+
+If this function is called more than once, subsequent calls are ignored.
+
+=cut
+
+sub supplement {
+  
+  # Check parameter count
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Get self and parameter
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  my $dataset_folder = shift;
+  (not ref($dataset_folder)) or die "Wrong parameter type, stopped";
+  
+  # Ignore if supplement already opened
+  if (exists $self->{'_fs'}) {
+    return;
+  }
+  
+  # Get path to supplement file and check that it exists
+  my $supplement_path = $dataset_folder . 'extradfn.txt';
+  (-f $supplement_path) or
+    die "Can't find supplement file '$supplement_path', stopped";
+  
+  # Open the supplement file in UTF-8 mode with CR+LF translation
+  open(my $fs, "< :encoding(UTF-8) :crlf", $supplement_path) or
+    die "Can't open supplement file '$supplement_path', stopped";
+  
+  # Store supplement handle
+  $self->{'_fs'} = $fs;
+}
 
 =item B<rewind()>
 
@@ -156,8 +213,11 @@ sub rewind {
   (ref($self) and $self->isa(__PACKAGE__)) or
     die "Wrong parameter type, stopped";
   
-  # Rewind to beginning of file
+  # Rewind to beginning of file(s)
   seek($self->{'_fh'}, 0, SEEK_SET) or die "Seek failed, stopped";
+  if (defined $self->{'_fs'}) {
+    seek($self->{'_fs'}, 0, SEEK_SET) or die "Seek failed, stopped";
+  }
   
   # Clear state to BOF
   $self->{'_state'  } =  -1;
@@ -186,6 +246,9 @@ blank.
 
 This function is I<much> faster than just advancing over records,
 because this function will not parse any of the lines it is skipping.
+
+This function can't be used to seek to lines in the supplement, if a
+supplement is defined.
 
 =cut
 
@@ -230,6 +293,9 @@ After an advance operation that returns true, this will return the line
 number of the record that was just read (where the first line is 1).
 After an advance operation that returns false, this will return the line
 number of the last line in the file.
+
+The behavior of line numbers is unreliable once you are into the
+supplement file, if a supplement file is defined.
 
 =cut
 
@@ -280,34 +346,59 @@ sub advance {
   }
   
   # Read lines until we get one that is neither a comment nor blank, or
-  # we reach EOF
+  # we reach EOF; if there is a supplement, we will span the search
+  # across the two files
   my $ltext = undef;
   
-  while(not eof($self->{'_fh'})) {
-    # Read a line
-    defined($ltext = readline $self->{'_fh'}) or
-      die "I/O error, stopped";
+  for(my $x = 0; $x < 2; $x++) {
+    # Determine file handle to consult
+    my $fh;
+    if ($x == 0) {
+      $fh = $self->{'_fh'};
     
-    # Increase the line count
-    $self->{'_linenum'} = $self->{'_linenum'} + 1;
-    
-    # Drop line break
-    chomp $ltext;
-    
-    # If this is the first line of the file, drop any UTF-8 Byte Order
-    # Mark (BOM)
-    if ($self->{'_linenum'} == 1) {
-      $ltext =~ s/\A\x{feff}//;
+    } elsif ($x == 1) {
+      if (exists $self->{'_fs'}) {
+        $fh = $self->{'_fs'};
+      } else {
+        last;
+      }
+      
+    } else {
+      die "Unexpected";
     }
     
-    # If this is a comment or blank line, set back to undef and continue
-    # on reading; otherwise, leave the loop
-    if (($ltext =~ /\A[ \t]*\z/) or ($ltext =~ /\A[ \t]*#/)) {
-      # Blank line or comment
-      $ltext = undef;
+    # Try finding a line with this file handle
+    while(not eof($fh)) {
+      # Read a line
+      defined($ltext = readline $fh) or
+        die "I/O error, stopped";
+      
+      # Increase the line count
+      $self->{'_linenum'} = $self->{'_linenum'} + 1;
+      
+      # Drop line break
+      chomp $ltext;
+      
+      # If this is the first line of the file or we are on any line of
+      # the supplement, drop any UTF-8 Byte Order Mark (BOM)
+      if (($self->{'_linenum'} == 1) or ($x > 0)) {
+        $ltext =~ s/\A\x{feff}//;
+      }
+      
+      # If this is a comment or blank line, set back to undef and
+      # continue on reading; otherwise, leave the loop
+      if (($ltext =~ /\A[ \t]*\z/) or ($ltext =~ /\A[ \t]*#/)) {
+        # Blank line or comment
+        $ltext = undef;
+      
+      } else {
+        # Found a line that is neither comment nor blank
+        last;
+      }
+    }
     
-    } else {
-      # Found a line that is neither comment nor blank
+    # If we got a line, leave loop
+    if (defined $ltext) {
       last;
     }
   }
