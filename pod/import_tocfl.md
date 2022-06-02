@@ -29,6 +29,10 @@ also intelligently use `han_exmap`, `pinyin_count`, and `han_count`
 from `Sino::Util` to properly map Pinyin readings to Han character
 readings, even though this isn't explicit in the TOCFL datasets.
 
+Furthermore, this script will skip all TOCFL records where _all_
+headwords are on the blocklist as defined by the `parse_blocklist`
+function of `Sino::Util`.
+
 # AUTHOR
 
 Noah Johnson, `noah.johnson@loupmail.com`
