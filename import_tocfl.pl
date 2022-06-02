@@ -7,7 +7,7 @@ use Encode qw(encode);
 
 # Sino imports
 use Sino::DB;
-use Sino::Util qw(han_exmap pinyin_count han_count);
+use Sino::Util qw(parse_blocklist han_exmap pinyin_count han_count);
 use SinoConfig;
 
 =head1 NAME
@@ -40,6 +40,10 @@ vowel, or some missing Pinyin readings for abbreviated forms).  It will
 also intelligently use C<han_exmap>, C<pinyin_count>, and C<han_count>
 from C<Sino::Util> to properly map Pinyin readings to Han character
 readings, even though this isn't explicit in the TOCFL datasets.
+
+Furthermore, this script will skip all TOCFL records where I<all>
+headwords are on the blocklist as defined by the C<parse_blocklist>
+function of C<Sino::Util>.
 
 =cut
 
@@ -558,6 +562,10 @@ for my $fpath (@$config_tocfl) {
   (-f $fpath) or die "Can't find TOCFL file '$fpath', stopped";
 }
 
+# Load the blocklist
+#
+my $blocklist = parse_blocklist($config_datasets);
+
 # Open database connection to existing database
 #
 my $dbc = Sino::DB->connect($config_dbpath, 0);
@@ -908,6 +916,18 @@ for(my $vlevel = 1; $vlevel <= 7; $vlevel++) {
         die "Unrecognized word class '$wcv', stopped";
       $wcv = $wcm{$wcv};
     }
+    
+    # Record is parsed and ready to add to the database; but before
+    # proceeding further, check whether all headwords are in the
+    # blocklist; if they are, then skip this record without adding it
+    my $is_blocked = 1;
+    for my $hwv (@hws) {
+      unless (defined $blocklist->{$hwv}) {
+        $is_blocked = 0;
+        last;
+      }
+    }
+    (not $is_blocked) or next;
     
     # Look through all the headwords and determine the IDs of any
     # existing words that share any of those headwords
