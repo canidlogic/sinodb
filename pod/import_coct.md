@@ -23,6 +23,10 @@ into the database, with all of the Han readings, and at a level one
 greater than the level in the COCT data file (since COCT levels are one
 higher than TOCFL).
 
+Also, this script will skip all COCT records where _all_ headwords are
+on the blocklist as defined by the `parse_blocklist` function of
+`Sino::Util`.
+
 # AUTHOR
 
 Noah Johnson, `noah.johnson@loupmail.com`
