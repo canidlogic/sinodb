@@ -5,12 +5,21 @@ Sino::Util - Utility functions for Sino.
 # SYNOPSIS
 
     use Sino::Util qw(
+          parse_blocklist
           han_exmap
           pinyin_count
           han_count
           parse_measures
           extract_pronunciation
           extract_xref);
+    
+    # Get the blocklist with each traditional character in a hash
+    use SinoConfig;
+    my $blocks = parse_blocklist($config_datasets);
+    if (defined $blocks->{$han}) {
+      # $han is in the blocklist
+      ...
+    }
     
     # Check whether a Han sequence has an exception Pinyin mapping
     my $pinyin = han_exmap($han);
@@ -79,6 +88,13 @@ Provides various utility functions.  See the documentation of the
 individual functions for further information.
 
 # FUNCTIONS
+
+- **parse\_blocklist($config\_datasets)**
+
+    Given the path to the datasets directory defined by the configuration
+    file in configuration variable `config_datasets`, read the full
+    blocklist file and return a hash reference where the keys are the
+    headwords in the blocklist and the values are all one.
 
 - **han\_exmap(han)**
 
