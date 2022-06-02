@@ -35,6 +35,9 @@ rendering matches something in the C<han> table.  If it does, then the
 record data will be imported and linked properly within the Sino
 database.
 
+The supplementary definitions is used, so that supplementary definitions
+will be imported by this script if relevant.
+
 In the second pass, check for the situation of words that didn't get any
 entry in the C<mpy> table after the first pass because their Han
 rendering is recorded in the CC-CEDICT data file as a simplified
@@ -76,9 +79,10 @@ my $dbh = $dbc->beginWork('rw');
 my $edck = $dbh->selectrow_arrayref('SELECT wordid FROM word');
 (ref($edck) eq 'ARRAY') or die "No words defined in database, stopped";
 
-# Load the CC-CEDICT dictionary
+# Load the CC-CEDICT dictionary and the supplement
 #
 my $dict = Sino::Dict->load($config_dictpath);
+$dict->supplement($config_datasets);
 
 # Define the simplified word hash, which maps word IDs using simplified
 # renderings to values of one
