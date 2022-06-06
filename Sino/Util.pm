@@ -2,6 +2,13 @@ package Sino::Util;
 use parent qw(Exporter);
 use strict;
 
+# We will use UTF-8 in string literals and some regular expressions.
+#
+# The extended character set in this source file is limited to diacritic
+# characters used in standard Pinyin.
+#
+use utf8;
+
 our @EXPORT_OK = qw(
                   parse_blocklist
                   han_exmap
@@ -118,7 +125,7 @@ individual functions for further information.
 #
 my $MAX_VSEQ = 3;
 
-# Hash mapping recognized sequences of vowels to values of one.
+# Hash representing a set of recognized Pinyin sequences of vowels.
 #
 # No vowel sequence may exceed $MAX_VSEQ in length.  This does hash does
 # not store single vowels, only multi-vowel sequences.
@@ -126,88 +133,114 @@ my $MAX_VSEQ = 3;
 # For diacritics, only the acute accent diacritic is shown in this hash.
 #
 my %PNY_MULTI = (
-  'ai' => 1,
-  'ao' => 1,
-  'ei' => 1,
-  'ia' => 1,
+  'ai'  => 1,
+  'ao'  => 1,
+  'ei'  => 1,
+  'ia'  => 1,
   'iao' => 1,
-  'ie' => 1,
-  'io' => 1,
-  'iu' => 1,
-  'ou' => 1,
-  'ua' => 1,
-  "\x{fc}a" => 1,
+  'ie'  => 1,
+  'io'  => 1,
+  'iu'  => 1,
+  'ou'  => 1,
+  'ua'  => 1,
+  'üa'  => 1,
   'uai' => 1,
-  'ue' => 1,
-  "\x{fc}e" => 1,
-  'ui' => 1,
-  'uo' => 1,
-  "\x{e1}i" => 1,
-  "\x{e1}o" => 1,
-  "\x{e9}i" => 1,
-  "i\x{e1}" => 1,
-  "i\x{e1}o" => 1,
-  "i\x{e9}" => 1,
-  "i\x{f3}" => 1,
-  "i\x{fa}" => 1,
-  "\x{f3}u" => 1,
-  "u\x{e1}" => 1,
-  "\x{fc}\x{e1}" => 1,
-  "u\x{e1}i" => 1,
-  "u\x{e9}" => 1,
-  "\x{fc}\x{e9}" => 1,
-  "u\x{ed}" => 1,
-  "u\x{f3}" => 1
+  'ue'  => 1,
+  'üe'  => 1,
+  'ui'  => 1,
+  'uo'  => 1,
+  'ái'  => 1,
+  'áo'  => 1,
+  'éi'  => 1,
+  'iá'  => 1,
+  'iáo' => 1,
+  'ié'  => 1,
+  'ió'  => 1,
+  'iú'  => 1,
+  'óu'  => 1,
+  'uá'  => 1,
+  'üá'  => 1,
+  'uái' => 1,
+  'ué'  => 1,
+  'üé'  => 1,
+  'uí'  => 1,
+  'uó'  => 1
 );
 
-# Mapping of exception TOCFL Pinyin to values of 1, for use by the
+# Hash that maps erroneous TOCFL Pinyin to corrected versions.
+#
+# This handles a few typos where the tonal diacritic was placed on the
+# wrong vowel.
+#
+# To query this hash, you must have already "cleaned up" the TOCFL
+# Pinyin by converting any uppercase initial letter to lowercase,
+# dropping ZWSPs, normalizing variant lowercase a to ASCII a, and
+# changing breve diacritics to caron diacritics.
+#
+my %PNY_TYPO = (
+  'piàolìang'  => 'piàoliàng',
+  'bǐfāngshūo' => 'bǐfāngshuō',
+  'shoúxī'     => 'shóuxī'
+);
+
+# Hash representing a set of exceptional TOCFL Pinyin, for use by the
 # tocfl_pinyin function.
 #
 # The Pinyin in this hash are all cases where ng between vowels should
-# be converted to G instead of Ng.
+# be converted to G (final ng) instead of Ng (n-g).
+#
+# To query this hash, you must have already "cleaned up" the TOCFL
+# Pinyin by converting any uppercase initial letter to lowercase,
+# dropping ZWSPs, normalizing variant lowercase a to ASCII a, changing
+# breve diacritics to caron diacritics, and correcting typos.
 #
 my %NG_EXCEPTION = (
-  "p\x{ec}ng\x{101}n" => 1,
-  "zh\x{e0}ng\x{e0}i" => 1,
-  "z\x{1d2}ng\x{e9}ry\x{e1}nzh\x{12b}" => 1,
-  "d\x{1ce}ng\x{e0}n" => 1,
-  "f\x{101}ng\x{e0}n" => 1,
-  "j\x{ec}ng\x{e0}i" => 1,
-  "xi\x{101}ngq\x{12b}nxi\x{101}ng\x{e0}i" => 1,
-  "y\x{12b}ng\x{e9}r" => 1,
-  "ch\x{1d2}ng\x{e0}i" => 1,
-  "c\x{f3}ng\x{e9}r" => 1,
-  "d\x{ec}ng\x{e9}" => 1,
-  "f\x{e1}ng\x{e0}i" => 1,
-  "g\x{14d}ng\x{101}n" => 1,
-  "m\x{ec}ng\x{e9}" => 1,
-  "t\x{e9}ng\x{e0}i" => 1,
-  "z\x{1d2}ng\x{e9}" => 1
+  'píngān'          => 1,
+  'zhàngài'         => 1,
+  'zǒngéryánzhī'    => 1,
+  'dǎngàn'          => 1,
+  'fāngàn'          => 1,
+  'jìngài'          => 1,
+  'xiāngqīnxiāngài' => 1,
+  'yīngér'          => 1,
+  'chǒngài'         => 1,
+  'cóngér'          => 1,
+  'dìngé'           => 1,
+  'fángài'          => 1,
+  'gōngān'          => 1,
+  'míngé'           => 1,
+  'téngài'          => 1,
+  'zǒngé'           => 1
 );
 
-# Mapping of exception TOCFL Pinyin to values of 1, for use by the
+# Hash representing a set of exceptional TOCFL Pinyin, for use by the
 # tocfl_pinyin function.
 #
 # The Pinyin in this hash are all cases where n between vowels should be
-# converted to N instead of n.
+# converted to N (final n) instead of n (initial n).
+#
+# To query this hash, you must have already "cleaned up" the TOCFL
+# Pinyin by converting any uppercase initial letter to lowercase,
+# dropping ZWSPs, normalizing variant lowercase a to ASCII a, changing
+# breve diacritics to caron diacritics, and correcting typos.
 #
 my %N_EXCEPTION = (
-  "f\x{1ce}n\x{e9}r" => 1,
-  "li\x{e0}n\x{e0}i" => 1,
-  "g\x{1ce}n\x{113}n" => 1,
-  "j\x{12b}n\x{e9}" => 1,
-  "q\x{12b}n\x{e0}i" => 1,
-  "r\x{e1}n\x{e9}r" => 1,
-  "y\x{12b}b\x{101}n\x{e9}ry\x{e1}n" => 1,
-  "y\x{12b}n\x{e9}r" => 1,
-  "\x{e0}n\x{e0}n" => 1,
-  "b\x{e0}n\x{e0}n" => 1,
-  "bi\x{1ce}n\x{e9}" => 1,
-  "\x{113}n\x{e0}i" => 1,
-  "j\x{ec}n\x{e9}r" => 1,
-  "r\x{e9}n\x{e0}i" => 1,
-  "sh\x{113}n\x{e0}o" => 1,
-  "x\x{12b}n\x{e0}i" => 1
+  'fǎnér'      => 1,
+  'liànài'     => 1,
+  'gǎnēn'      => 1,
+  'jīné'       => 1,
+  'qīnài'      => 1,
+  'ránér'      => 1,
+  'yībānéryán' => 1,
+  'yīnér'      => 1,
+  'ànàn'       => 1,
+  'bànàn'      => 1,
+  'biǎné'      => 1,
+  'ēnài'       => 1,
+  'jìnér'      => 1,
+  'rénài'      => 1,
+  'shēnào'     => 1,
+  'xīnài'      => 1
 );
 
 # Exceptional mappings of Han readings to Pinyin readings, for use by
@@ -1547,39 +1580,32 @@ sub tocfl_pinyin {
   
   $str =~ s/\x{251}/a/g;
   
-  $str =~ s/\x{103}/\x{1ce}/g;
-  $str =~ s/\x{115}/\x{11b}/g;
-  $str =~ s/\x{12d}/\x{1d0}/g;
-  $str =~ s/\x{14f}/\x{1d2}/g;
-  $str =~ s/\x{16d}/\x{1d4}/g;
+  $str =~ s/\x{103}/ǎ/g;
+  $str =~ s/\x{115}/ě/g;
+  $str =~ s/\x{12d}/ǐ/g;
+  $str =~ s/\x{14f}/ǒ/g;
+  $str =~ s/\x{16d}/ǔ/g;
   
-  # Correct the three TOCFL typos that have the diacritic on the wrong
-  # vowel
-  if ($str eq "pi\x{e0}ol\x{ec}ang") {
-    $str = "pi\x{e0}oli\x{e0}ng";
-  
-  } elsif ($str eq "b\x{1d0}f\x{101}ngsh\x{16b}o") {
-    $str = "b\x{1d0}f\x{101}ngshu\x{14d}";
-    
-  } elsif ($str eq "sho\x{fa}x\x{12b}") {
-    $str = "sh\x{f3}ux\x{12b}";
+  # Correct TOCFL typos
+  if (defined $PNY_TYPO{$str}) {
+    $str = $PNY_TYPO{$str};
   }
   
   # Make sure only the allowed characters are used
   for my $c (split //, $str) {
     my $cpv = ord($c);
     ((($cpv >= ord('a')) and ($cpv <= ord('z'))) or
-      ($cpv == 0xe0) or ($cpv == 0xe1) or
-      ($cpv == 0xe8) or ($cpv == 0xe9) or
-      ($cpv == 0xec) or ($cpv == 0xed) or
-      ($cpv == 0xf2) or ($cpv == 0xf3) or
-      ($cpv == 0xf9) or ($cpv == 0xfa) or
-      ($cpv == 0x101) or ($cpv == 0x113) or ($cpv == 0x12b) or
-        ($cpv == 0x14d) or ($cpv == 0x16b) or
-      ($cpv == 0x1ce) or ($cpv == 0x11b) or ($cpv == 0x1d0) or
-        ($cpv == 0x1d2) or ($cpv == 0x1d4) or
-      ($cpv == 0xfc) or ($cpv == 0x1d6) or ($cpv == 0x1d8) or
-        ($cpv == 0x1da) or ($cpv == 0x1dc)) or
+      ($c eq 'à') or ($c eq 'á') or
+      ($c eq 'è') or ($c eq 'é') or
+      ($c eq 'ì') or ($c eq 'í') or
+      ($c eq 'ò') or ($c eq 'ó') or
+      ($c eq 'ù') or ($c eq 'ú') or
+      ($c eq 'ā') or ($c eq 'ē') or ($c eq 'ī') or
+        ($c eq 'ō') or ($c eq 'ū') or
+      ($c eq 'ǎ') or ($c eq 'ě') or ($c eq 'ǐ') or
+        ($c eq 'ǒ') or ($c eq 'ǔ') or
+      ($c eq 'ü') or ($c eq 'ǖ') or ($c eq 'ǘ') or
+        ($c eq 'ǚ') or ($c eq 'ǜ')) or
       die "Invalid pinyin char, stopped";
   }
   
@@ -1738,7 +1764,7 @@ sub tocfl_pinyin {
     # previous case AND there is a preceding vowel block AND it contains
     # just an e (any tone), then we might have an erhua
     if (($cb =~ /\Ar/) and ($i > 0) and
-          ($cvs[$i - 1] =~ /\A[e\x{113}\x{e9}\x{11b}\x{e8}]\z/)) {
+          ($cvs[$i - 1] =~ /\A[eēéěè]\z/)) {
       # Determine whether the preceding vowel block has a forced initial
       my $forced_initial = 0;
       
@@ -1889,7 +1915,7 @@ sub tocfl_pinyin {
     my $cb = $cvs[$i];
     
     # Block must be optional final, optional erhua, and optional initial
-    ($cb =~ /\A([RGN]?)([Q]?)([^RGNQ]?)\z/) or
+    ($cb =~ /\A([RGN]?)([Q]?)([pbtdkgmnczCZqjfsSxhlr]?)\z/) or
       die "Invalid Pinyin, stopped";
     
     my $final   = $1;
