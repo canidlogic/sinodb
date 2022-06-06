@@ -9,7 +9,8 @@ our @EXPORT_OK = qw(
                   han_count
                   parse_measures
                   extract_pronunciation
-                  extract_xref);
+                  extract_xref
+                  tocfl_pinyin);
 
 # Core dependencies
 use Unicode::Normalize;
@@ -27,7 +28,8 @@ Sino::Util - Utility functions for Sino.
         han_count
         parse_measures
         extract_pronunciation
-        extract_xref);
+        extract_xref
+        tocfl_pinyin);
   
   # Get the blocklist with each traditional character in a hash
   use SinoConfig;
@@ -97,6 +99,9 @@ Sino::Util - Utility functions for Sino.
       }
     }
   }
+  
+  # Convert TOCFL-style Pinyin to standard Pinyin
+  my $standard_pinyin = tocfl_pinyin($tocfl_pinyin);
 
 =head1 DESCRIPTION
 
@@ -115,7 +120,8 @@ my $MAX_VSEQ = 3;
 
 # Hash mapping recognized sequences of vowels to values of one.
 #
-# No vowel sequence may exceed $MAX_VSEQ in length.
+# No vowel sequence may exceed $MAX_VSEQ in length.  This does hash does
+# not store single vowels, only multi-vowel sequences.
 #
 # For diacritics, only the acute accent diacritic is shown in this hash.
 #
@@ -130,12 +136,12 @@ my %PNY_MULTI = (
   'iu' => 1,
   'ou' => 1,
   'ua' => 1,
+  "\x{fc}a" => 1,
   'uai' => 1,
   'ue' => 1,
+  "\x{fc}e" => 1,
   'ui' => 1,
   'uo' => 1,
-  "\x{fc}i" => 1,
-  "\x{fc}o" => 1,
   "\x{e1}i" => 1,
   "\x{e1}o" => 1,
   "\x{e9}i" => 1,
@@ -146,13 +152,62 @@ my %PNY_MULTI = (
   "i\x{fa}" => 1,
   "\x{f3}u" => 1,
   "u\x{e1}" => 1,
+  "\x{fc}\x{e1}" => 1,
   "u\x{e1}i" => 1,
   "u\x{e9}" => 1,
-  "u\x{ed}" => 1,
-  "u\x{f3}" => 1,
-  "\x{fc}\x{e1}" => 1,
   "\x{fc}\x{e9}" => 1,
-  "\x{1d8}" => 1
+  "u\x{ed}" => 1,
+  "u\x{f3}" => 1
+);
+
+# Mapping of exception TOCFL Pinyin to values of 1, for use by the
+# tocfl_pinyin function.
+#
+# The Pinyin in this hash are all cases where ng between vowels should
+# be converted to G instead of Ng.
+#
+my %NG_EXCEPTION = (
+  "p\x{ec}ng\x{101}n" => 1,
+  "zh\x{e0}ng\x{e0}i" => 1,
+  "z\x{1d2}ng\x{e9}ry\x{e1}nzh\x{12b}" => 1,
+  "d\x{1ce}ng\x{e0}n" => 1,
+  "f\x{101}ng\x{e0}n" => 1,
+  "j\x{ec}ng\x{e0}i" => 1,
+  "xi\x{101}ngq\x{12b}nxi\x{101}ng\x{e0}i" => 1,
+  "y\x{12b}ng\x{e9}r" => 1,
+  "ch\x{1d2}ng\x{e0}i" => 1,
+  "c\x{f3}ng\x{e9}r" => 1,
+  "d\x{ec}ng\x{e9}" => 1,
+  "f\x{e1}ng\x{e0}i" => 1,
+  "g\x{14d}ng\x{101}n" => 1,
+  "m\x{ec}ng\x{e9}" => 1,
+  "t\x{e9}ng\x{e0}i" => 1,
+  "z\x{1d2}ng\x{e9}" => 1
+);
+
+# Mapping of exception TOCFL Pinyin to values of 1, for use by the
+# tocfl_pinyin function.
+#
+# The Pinyin in this hash are all cases where n between vowels should be
+# converted to N instead of n.
+#
+my %N_EXCEPTION = (
+  "f\x{1ce}n\x{e9}r" => 1,
+  "li\x{e0}n\x{e0}i" => 1,
+  "g\x{1ce}n\x{113}n" => 1,
+  "j\x{12b}n\x{e9}" => 1,
+  "q\x{12b}n\x{e0}i" => 1,
+  "r\x{e1}n\x{e9}r" => 1,
+  "y\x{12b}b\x{101}n\x{e9}ry\x{e1}n" => 1,
+  "y\x{12b}n\x{e9}r" => 1,
+  "\x{e0}n\x{e0}n" => 1,
+  "b\x{e0}n\x{e0}n" => 1,
+  "bi\x{1ce}n\x{e9}" => 1,
+  "\x{113}n\x{e0}i" => 1,
+  "j\x{ec}n\x{e9}r" => 1,
+  "r\x{e9}n\x{e0}i" => 1,
+  "sh\x{113}n\x{e0}o" => 1,
+  "x\x{12b}n\x{e0}i" => 1
 );
 
 # Exceptional mappings of Han readings to Pinyin readings, for use by
@@ -1453,6 +1508,462 @@ sub extract_xref {
     \@xresult,
     $suffix
   ];
+}
+
+=item B<tocfl_pinyin(str)>
+
+Given a string containing Pinyin in TOCFL format, normalize it to
+standard Pinyin and return the result.  Fatal errors occur if the passed
+string is not in the expected TOCFL Pinyin format.
+
+This function does not handle variant notation involving parentheses and
+slashes, so you have to decompose TOCFL Pinyin containing parentheses or
+slashes before passing it through this function.
+
+The given string must be a Unicode string.  Do not pass a binary string
+that is encoded in UTF-8.
+
+=cut
+
+sub tocfl_pinyin {
+  # Get and check parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  # If TOCFL Pinyin begins with an uppercase letter, normalize case of
+  # that initial letter to lowercase
+  if ($str =~ /\A([A-Z])(.*)\z/) {
+    my $a = $1;
+    my $b = $2;
+    
+    $a = lc($a);
+    $str = $a . $b;
+  }
+  
+  # Drop ZWSP, normalize variant lowercase a to ASCII a, and change
+  # breve diacritics to caron diacritics
+  $str =~ s/\x{200b}//g;
+  
+  $str =~ s/\x{251}/a/g;
+  
+  $str =~ s/\x{103}/\x{1ce}/g;
+  $str =~ s/\x{115}/\x{11b}/g;
+  $str =~ s/\x{12d}/\x{1d0}/g;
+  $str =~ s/\x{14f}/\x{1d2}/g;
+  $str =~ s/\x{16d}/\x{1d4}/g;
+  
+  # Correct the three TOCFL typos that have the diacritic on the wrong
+  # vowel
+  if ($str eq "pi\x{e0}ol\x{ec}ang") {
+    $str = "pi\x{e0}oli\x{e0}ng";
+  
+  } elsif ($str eq "b\x{1d0}f\x{101}ngsh\x{16b}o") {
+    $str = "b\x{1d0}f\x{101}ngshu\x{14d}";
+    
+  } elsif ($str eq "sho\x{fa}x\x{12b}") {
+    $str = "sh\x{f3}ux\x{12b}";
+  }
+  
+  # Make sure only the allowed characters are used
+  for my $c (split //, $str) {
+    my $cpv = ord($c);
+    ((($cpv >= ord('a')) and ($cpv <= ord('z'))) or
+      ($cpv == 0xe0) or ($cpv == 0xe1) or
+      ($cpv == 0xe8) or ($cpv == 0xe9) or
+      ($cpv == 0xec) or ($cpv == 0xed) or
+      ($cpv == 0xf2) or ($cpv == 0xf3) or
+      ($cpv == 0xf9) or ($cpv == 0xfa) or
+      ($cpv == 0x101) or ($cpv == 0x113) or ($cpv == 0x12b) or
+        ($cpv == 0x14d) or ($cpv == 0x16b) or
+      ($cpv == 0x1ce) or ($cpv == 0x11b) or ($cpv == 0x1d0) or
+        ($cpv == 0x1d2) or ($cpv == 0x1d4) or
+      ($cpv == 0xfc) or ($cpv == 0x1d6) or ($cpv == 0x1d8) or
+        ($cpv == 0x1da) or ($cpv == 0x1dc)) or
+      die "Invalid pinyin char, stopped";
+  }
+  
+  # Make sure at least one character
+  (length($str) > 0) or die "Empty Pinyin not allowed, stopped";
+  
+  # Keep a copy of the unaltered Pinyin
+  my $unaltered = $str;
+  
+  # Change the digraph consonants to capitalized; that is to say,
+  # zh -> Z, ch -> C, sh -> S; but leave ng alone for now because we
+  # don't know yet when it is G and when it is two consonants
+  $str =~ s/zh/Z/g;
+  $str =~ s/ch/C/g;
+  $str =~ s/sh/S/g;
+  
+  # Decompose the string into an array where the first element is a
+  # string of only consonants, the second element is a string of only
+  # vowels, the third element is a string of only consonants, and so
+  # forth; elements may be empty strings
+  my @cva;
+  while(length($str) > 0) {
+    # Based on current length of cva array, determine whether we need to
+    # get consonants or vowels
+    if ((scalar(@cva) % 2) == 0) {
+      # First, third, fifth, etc. element, so we need as many consonants
+      # as we can get from the start of the string
+      if ($str =~ /\A([CSZb-df-hj-np-tv-z]+)/) {
+        # We found a consonant sequence
+        my $cs = $1;
+        
+        # Drop from start of string and add to array
+        push @cva, ($cs);
+        $str = substr($str, length($cs));
+        
+      } else {
+        # No consonants at start of string, so push empty string
+        push @cva, ('');
+      }
+      
+    } else {
+      # Second, fourth, sixth, etc. element, so we need as many vowels
+      # as we can get from the start of the string
+      if ($str =~ /\A([^CSZb-df-hj-np-tv-z]+)/) {
+        # We found a vowel sequence
+        my $vs = $1;
+        
+        # Drop from start of string and add to array
+        push @cva, ($vs);
+        $str = substr($str, length($vs));
+        
+      } else {
+        # No vowels at start of string, so push empty string
+        push @cva, ('');
+      }
+    }
+    
+    # Prevent an infinite loop by stopping if more than a thousand
+    # elements in array
+    (scalar(@cva) <= 1000) or die "Failed to parse Pinyin, stopped";
+  }
+  
+  # Copy the array we just made to another array, except for each vowel
+  # element, split so that only allowable multi-vowel sequences are
+  # allowed; split vowel components will be separated from each other
+  # by empty strings so that the consonant-vowel alternation is
+  # preserved
+  my @cvs;
+  for(my $i = 0; $i <= $#cva; $i++) {
+    # Check type of component
+    if (($i % 2) == 0) {
+      # Consonant component, so just copy to the new array
+      push @cvs, ($cva[$i]);
+      
+    } else {
+      # Vowel component, so get a copy
+      my $vs = $cva[$i];
+      
+      # In special case of empty string, just copy an empty string over
+      unless (length($vs) > 0) {
+        push @cvs, ('');
+        next;
+      }
+      
+      # Our vowel sequence lookup table only has acute accent
+      # diacritics, so make a copy of the vowel sequence where all tonal
+      # diacritics are replaced by acute accent
+      my $vsn = $vs;
+      $vsn = NFD($vsn);
+      $vsn =~ s/[\x{300}\x{304}\x{30c}]/\x{301}/g;
+      $vsn = NFC($vsn);
+      
+      # Keep processing until the vowel sequence is empty
+      my $first = 1;
+      while (length($vs) > 0) {
+        # Unless this is the first invocation, push an empty string
+        # consonant separator
+        if ($first) {
+          $first = 0;
+        } else {
+          push @cvs, ('');
+        }
+        
+        # Using the vowel sequence copy where all tonal diacritics are
+        # acute accents, determine the longest matching sequence vowel
+        # combination at the start of the vowel sequence
+        my $seqlen = $MAX_VSEQ;
+        if ($seqlen > length($vs)) {
+          $seqlen = length($vs);
+        }
+        while ($seqlen > 1) {
+          if (defined $PNY_MULTI{substr($vsn, 0, $seqlen)}) {
+            last;
+          } else {
+            $seqlen--;
+          }
+        }
+        
+        # Push the next vowel combination onto the array and remove from
+        # both sequence strings
+        push @cvs, (substr($vs, 0, $seqlen));
+        $vs  = substr($vs , $seqlen);
+        $vsn = substr($vsn, $seqlen);
+      }
+    }
+  }
+  
+  # Remove any empty sequence strings from the end of the array; this
+  # shouldn't cause the array to go empty
+  while ($#cvs >= 0) {
+    if (length($cvs[$#cvs]) < 1) {
+      pop;
+    } else {
+      last;
+    }
+  }
+  ($#cvs >= 0) or die "Unexpected";
+  
+  # Go through all consonant sequences and split any r consonants into
+  # either "r" (initial), "R" (final), or "Q" (erhua inflection)
+  for(my $i = 0; $i <= $#cvs; $i = $i + 2) {
+    # Get current consonant block
+    my $cb = $cvs[$i];
+    
+    # Skip this consonant block if it doesn't have an "r"
+    ($cb =~ /r/) or next;
+    
+    # If r is last consonant in block AND there is a vowel block
+    # following this, then temporarily change it to "9" (which will
+    # later be changed back to "r"
+    if (($cb =~ /r\z/) and ($i < $#cvs)) {
+      $cb =~ s/r\z/9/;
+    }
+    
+    # If r is the first consonant in block and it wasn't handled by the
+    # previous case AND there is a preceding vowel block AND it contains
+    # just an e (any tone), then we might have an erhua
+    if (($cb =~ /\Ar/) and ($i > 0) and
+          ($cvs[$i - 1] =~ /\A[e\x{113}\x{e9}\x{11b}\x{e8}]\z/)) {
+      # Determine whether the preceding vowel block has a forced initial
+      my $forced_initial = 0;
+      
+      if (($i == 2) and (length($cvs[0]) > 0)) {
+        # Vowel block is very first and initial consonant sequence is
+        # non-empty, so forced initial
+        $forced_initial = 1;
+      
+      } else {
+        # Other check for forced initial requires examination of
+        # preceding consonant block
+        my $pcb = $cvs[$i - 2];
+        
+        # Only possible for forced initial in this case if preceding
+        # consonant block is not just "ng"
+        unless ($pcb eq 'ng') {
+          # Forced initial if at least two consonants or one consonant
+          # other than n
+          if (length($pcb) > 1) {
+            $forced_initial = 1;
+          } elsif ((length($pcb) == 1) and ($pcb ne 'n')) {
+            $forced_initial = 1;
+          }
+        }
+      }
+      
+      # If the preceding solitary e does not have a forced initial, then
+      # we can change the r to R (final r)
+      unless ($forced_initial) {
+        $cb =~ s/\Ar/R/;
+      }
+    }
+    
+    # If r is the last consonant in block, we haven't handled it yet
+    # with the other cases, and this consonant block is the very last
+    # block in the word, then replace it with erhua inflection (Q)
+    if (($cb =~ /r\z/) and ($i == $#cvs)) {
+      $cb =~ s/r\z/Q/;
+    }
+    
+    # There shouldn't be any r remaining in the consonant block after
+    # applying these r->9, r->R, and r->Q replacements
+    (not ($cb =~ /r/)) or die "Invalid Pinyin, stopped";
+    
+    # Replace the temporary "9" with "r" meaning initial r
+    $cb =~ s/9/r/g;
+    
+    # Update consonant block
+    $cvs[$i] = $cb;
+  }
+  
+  # Go through all consonant sequences and convert any "ng" pairs either
+  # to G (representing single NG final) or to "Ng" (representing final
+  # N followed by initial G)
+  for(my $i = 0; $i <= $#cvs; $i = $i + 2) {
+    # Get current consonant block
+    my $cb = $cvs[$i];
+    
+    # Skip this consonant block if it doesn't have an "ng"
+    ($cb =~ /ng/) or next;
+  
+    # If this consonant block has anything more than "ng" in it, convert
+    # ng to G (representing NG final) and then store this as the updated
+    # value
+    unless ($cb eq 'ng') {
+      $cb =~ s/ng/G/g;
+      $cvs[$i] = $cb;
+      next;
+    }
+    
+    # If we got here, the consonant block is "ng" so we need to
+    # determine if it is "G" or "Ng"; if this consonant block is the
+    # very first block or the very last block, or either of the
+    # surrounding vowel blocks are empty, then set update this consonant
+    # block to "G"
+    if (($i == 0) or ($i == $#cvs) or
+          (length($cvs[$i - 1]) < 1) or (length($cvs[$i + 1]) < 1)) {
+      $cvs[$i] = 'G';
+      next;
+    }
+    
+    # If we got here, we have "ng" surrounded by vowels; this is Ng
+    # except for the exceptional cases, which are G
+    if (defined $NG_EXCEPTION{$unaltered}) {
+      $cvs[$i] = 'G';
+    } else {
+      $cvs[$i] = 'Ng';
+    }
+  }
+  
+  # Go through all consonant sequences and convert any "n" that hasn't
+  # been handled by the "ng" process above to either "n" (representing
+  # an initial) or "N" (representing a final)
+  for(my $i = 0; $i <= $#cvs; $i = $i + 2) {
+    # Get current consonant block
+    my $cb = $cvs[$i];
+    
+    # Skip this consonant block if it doesn't have an "n"
+    ($cb =~ /n/) or next;
+    
+    # Shouldn't have an ng since we already handled that
+    (not ($cb =~ /ng/)) or die "Unexpected";
+    
+    # If n is first letter in the whole word, convert to "9"
+    # (placeholder for initial)
+    if (($cb =~ /\An/) and ($i == 0)) {
+      $cb =~ s/\An/9/;
+    }
+    
+    # If n is last letter in the whole word, convert to "N"
+    if (($cb =~ /n\z/) and ($i == $#cvs)) {
+      $cb =~ s/n\z/N/;
+    }
+    
+    # If n is not alone in a consonant sequence (not including the ng
+    # case handled earlier), then convert n at the start of the sequence
+    # to N and n at the end of the sequence to "9"
+    if (length($cb) > 1) {
+      $cb =~ s/\An/N/;
+      $cb =~ s/n\z/9/;
+    }
+    
+    # If n by itself in this consonant sequence and consonant sequence
+    # surrounded by vowels, then convert to "9" unless it is in the
+    # exception list, in which case convert to "N"
+    if (($cb eq 'n') and ($i > 0) and ($i < $#cvs)) {
+      if (defined $N_EXCEPTION{$unaltered}) {
+        $cb = 'N';
+      } else {
+        $cb = '9';
+      }
+    }
+    
+    # Make sure no unconverted n's remain
+    (not ($cb =~ /n/)) or die "Invalid Pinyin, stopped";
+    
+    # Replace the temporary "9" with "n" meaning initial n
+    $cb =~ s/9/n/g;
+    
+    # Update consonant block
+    $cvs[$i] = $cb;
+  }
+  
+  # Go through consonant blocks one last time, this time assigning each
+  # consonant to the proper surrounding vowel block
+  for(my $i = 0; $i <= $#cvs; $i = $i + 2) {
+    # Get current consonant block
+    my $cb = $cvs[$i];
+    
+    # Block must be optional final, optional erhua, and optional initial
+    ($cb =~ /\A([RGN]?)([Q]?)([^RGNQ]?)\z/) or
+      die "Invalid Pinyin, stopped";
+    
+    my $final   = $1;
+    my $erhua   = $2;
+    my $initial = $3;
+    
+    # Now that we've split by position, convert the uppercase notation
+    # back to standard notation for each
+    if ($final eq 'R') {
+      $final = 'r';
+    } elsif ($final eq 'G') {
+      $final = 'ng';
+    } elsif ($final eq 'N') {
+      $final = 'n';
+    }
+    
+    if ($erhua eq 'Q') {
+      $erhua = 'r';
+    }
+    
+    if ($initial eq 'Z') {
+      $initial = 'zh';
+    } elsif ($initial eq 'C') {
+      $initial = 'ch';
+    } elsif ($initial eq 'S') {
+      $initial = 'sh';
+    }
+    
+    # Make sure final and erhua are not both 'r'
+    (not (($final eq 'r') and ($erhua eq 'r'))) or
+      die "Invalid Pinyin, stopped";
+    
+    # If this is first, make sure final and erhua are both empty
+    if ($i == 0) {
+      ((length($final) < 1) and (length($erhua) < 1)) or
+        die "Invalid Pinyin, stopped";
+    }
+    
+    # If this is last, make sure initial is empty
+    if ($i == $#cvs) {
+      (length($initial) < 1) or die "Invalid Pinyin, stopped";
+    }
+    
+    # Assign components to their proper syllables
+    if (length($final) > 0) {
+      $cvs[$i - 1] = $cvs[$i - 1] . $final;
+    }
+    
+    if (length($erhua) > 0) {
+      $cvs[$i - 1] = $cvs[$i - 1] . $erhua;
+    }
+    
+    if (length($initial) > 0) {
+      $cvs[$i + 1] = $initial . $cvs[$i + 1];
+    }
+  }
+  
+  # Vowel blocks now hold syllables; transfer to array
+  my @syls;
+  for(my $i = 1; $i <= $#cvs; $i = $i + 2) {
+    push @syls, ($cvs[$i]);
+  }
+  ($#syls >= 0) or die "Unexpected";
+  
+  # Every syllable after the first must start with a consonant letter or
+  # else an apostrophe is prefixed
+  for(my $i = 1; $i <= $#syls; $i++) {
+    unless ($syls[$i] =~ /\A[b-df-hj-np-tv-z]/) {
+      $syls[$i] = "'" . $syls[$i];
+    }
+  }
+  
+  # Normalized result is all the syllables joined together
+  return join '', @syls;
 }
 
 =back
