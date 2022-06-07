@@ -17,7 +17,8 @@ our @EXPORT_OK = qw(
                   parse_measures
                   extract_pronunciation
                   extract_xref
-                  tocfl_pinyin);
+                  tocfl_pinyin
+                  cedict_pinyin);
 
 # Core dependencies
 use Unicode::Normalize;
@@ -36,7 +37,8 @@ Sino::Util - Utility functions for Sino.
         parse_measures
         extract_pronunciation
         extract_xref
-        tocfl_pinyin);
+        tocfl_pinyin
+        cedict_pinyin);
   
   # Get the blocklist with each traditional character in a hash
   use SinoConfig;
@@ -109,6 +111,12 @@ Sino::Util - Utility functions for Sino.
   
   # Convert TOCFL-style Pinyin to standard Pinyin
   my $standard_pinyin = tocfl_pinyin($tocfl_pinyin);
+  
+  # Convert CC-CEDICT-style Pinyin to standard Pinyin
+  my $standard_pinyin = cedict_pinyin($cedict_pinyin);
+  if (defined $standard_pinyin) {
+    ...
+  }
 
 =head1 DESCRIPTION
 
@@ -125,7 +133,7 @@ individual functions for further information.
 #
 my $MAX_VSEQ = 3;
 
-# Hash representing a set of recognized Pinyin sequences of vowels.
+# Hash representing the set of recognized Pinyin sequences of vowels.
 #
 # No vowel sequence may exceed $MAX_VSEQ in length.  This does hash does
 # not store single vowels, only multi-vowel sequences.
@@ -165,6 +173,84 @@ my %PNY_MULTI = (
   'üé'  => 1,
   'uí'  => 1,
   'uó'  => 1
+);
+
+# Hash representing the mapping of recognized Pinyin sequences of vowels
+# without tonal diacritics to the same sequence of vowels with the acute
+# accent diacritic.
+#
+# This is used to determine which vowel to place the tonal diacritic on
+# when there is a sequence of multiple vowels.  It is used by the
+# cedict_pinyin() function.
+#
+# This hash is derived from PNY_MULTI by matching all the diacritic
+# forms with their non-diacritic forms.  It also contains all
+# single-vowel forms.
+#
+my %PNY_TONAL = (
+  'a'   => 'á',
+  'e'   => 'é',
+  'i'   => 'í',
+  'o'   => 'ó',
+  'u'   => 'ú',
+  'ü'   => 'ǘ',
+  'ai'  => 'ái',
+  'ao'  => 'áo',
+  'ei'  => 'éi',
+  'ia'  => 'iá',
+  'iao' => 'iáo',
+  'ie'  => 'ié',
+  'io'  => 'ió',
+  'iu'  => 'iú',
+  'ou'  => 'óu',
+  'ua'  => 'uá',
+  'üa'  => 'üá',
+  'uai' => 'uái',
+  'ue'  => 'ué',
+  'üe'  => 'üé',
+  'ui'  => 'uí',
+  'uo'  => 'uó'
+);
+
+# Hash representing the mapping of recognized Pinyin sequences of vowels
+# without tonal diacritics to arrays storing all the contexts in which
+# that particular vowel sequence may be used.
+#
+# Unlike the other vowel mapping hashes, this hash also includes lone
+# vowels (vowel sequences of length one).
+#
+# A "context" consists of an initial "w" or "y" (if present), the vowel
+# sequence, and a final "n" "ng" or "r" (if present, but not including
+# erhua inflections).
+#
+# EXCEPTION:  "ue" also has a context "ue" but only when used with an
+# initial consonant "j" "q" or "x".
+#
+# This is used to check that vowel sequences are in valid contexts.
+#
+my %PNY_AGREE = (
+  'a'   => ['a', 'ya', 'wa', 'an', 'yan', 'wan', 'ang', 'yang', 'wang'],
+  'e'   => ['e', 'ye', 'en', 'wen', 'eng', 'weng', 'er'],
+  'i'   => ['i', 'yi', 'yin', 'in', 'ying', 'ing'],
+  'o'   => ['o', 'wo', 'ong', 'yong'],
+  'u'   => ['u', 'wu', 'yu', 'un', 'yun'],
+  'ü'   => ['ü', 'ün'],
+  'ai'  => ['ai', 'wai'],
+  'ao'  => ['ao', 'yao'],
+  'ei'  => ['ei', 'wei'],
+  'ia'  => ['ia', 'ian', 'iang'],
+  'iao' => ['iao'],
+  'ie'  => ['ie'],
+  'io'  => ['iong'],
+  'iu'  => ['iu'],
+  'ou'  => ['ou', 'you'],
+  'ua'  => ['ua', 'uan', 'yuan', 'uang'],
+  'üa'  => ['üan'],
+  'uai' => ['uai'],
+  'ue'  => ['yue'],
+  'üe'  => ['üe'],
+  'ui'  => ['ui'],
+  'uo'  => ['uo']
 );
 
 # Hash that maps erroneous TOCFL Pinyin to corrected versions.
@@ -1990,6 +2076,209 @@ sub tocfl_pinyin {
   
   # Normalized result is all the syllables joined together
   return join '', @syls;
+}
+
+=item B<cedict_pinyin(str)>
+
+Given a string containing Pinyin in CC-CEDICT format, normalize it to
+standard Pinyin and return the result, or C<undef> if the conversion
+failed.
+
+B<Warning:> This function is I<not> able to normalize all the Pinyin
+that is actually used within CC-CEDICT.  In particular, Pinyin that
+contains Latin letters by themselves (for abbreviations), Pinyin for
+certain proper names or sayings that includes punctuation marks, Pinyin
+that includes the C<xx> crossed-out notation, and Pinyin that includes
+syllabic C<m> will fail normalization by this function.  This function
+is only designed for the "regular" Pinyin cases found in CC-CEDICT.
+
+Normalized results will always be in all lowercase, following standard
+Pinyin format.  CC-CEDICT uses capitalized Pinyin syllables to indicate
+proper names.  If you want to preserve this information, you should scan
+the original CC-CEDICT string for any uppercase ASCII letters.  There is
+no way to recover this information just from the normalized Pinyin
+returned by this function.
+
+The given string must be a Unicode string.  Do not pass a binary string
+that is encoded in UTF-8.
+
+=cut
+
+sub cedict_pinyin {
+  # Get and check parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  # Trim leading and trailing whitespace, failing if the result is empty
+  $str =~ s/\A\s+//;
+  $str =~ s/\s+\z//;
+  (length($str) > 0) or return undef;
+  
+  # Split into one or more syllables separated by whitespace
+  my @syls = split ' ', $str;
+  ($#syls >= 0) or die "Unexpected";
+  
+  # Check that each syllable is an ASCII letter, followed by zero or
+  # more ASCII letters and colons, followed by a decimal digit 1-5, and
+  # check also that colon is only used immediately after the letter U
+  for my $s (@syls) {
+    ($s =~ /\A[a-z][a-z:]*[1-5]\z/i) or return undef;
+    (not ($s =~ /[^uU]:/)) or return undef;
+  }
+  
+  # Make everything lowercase and then convert u: to u-umlaut
+  for my $s (@syls) {
+    $s =~ tr/A-Z/a-z/;
+    $s =~ s/u:/ü/g;
+    (not ($s =~ /:/)) or die "Unexpected";
+  }
+  
+  # Convert everything to a parsed array @mps where each element is a
+  # subarray of five elements:  initial consonant (including w/y, empty
+  # string also allowed), vowel sequence, final consonant (empty string
+  # allowed), erhua ('r' or empty string), and integer tone number 1-5
+  my @mps;
+  for(my $i = 0; $i <= $#syls; $i++) {
+    # Parse this syllable
+    ($syls[$i] =~
+        /\A
+          ((?:b|d|g|p|t|k|m|n|z|zh|j|c|ch|q|f|s|sh|x|h|l|r|y|w)?)
+          ([aeiouü]+)
+          ((?:n|ng|r)?)
+          ([1-5])
+        \z/x) or return undef;
+    
+    my $initial = $1;
+    my $vseq    = $2;
+    my $final   = $3;
+    my $tone    = int($4);
+    
+    # If final is r, make sure vseq is "e" and initial is empty; else,
+    # if final is not r, check whether next syllable is an erhua that
+    # we should incorporate here
+    my $erhua = '';
+    if ($final eq 'r') {
+      # Check structure around final "r"
+      ($vseq eq 'e') or return undef;
+      (length($initial) < 1) or return undef;
+      
+    } else {
+      # Final is not "r", so check if next syllable is erhua, and
+      # incorporate it into this syllable if it is
+      if ($i < $#syls) {
+        if ($syls[$i + 1] eq 'r5') {
+          $erhua = 'r';
+          $i++;
+        }
+      }
+    }
+    
+    # Figure out the vowel context
+    my $vctx = $vseq . $final;
+    if (($initial eq 'w') or ($initial eq 'y')) {
+      $vctx = $initial . $vctx;
+    }
+
+    # Check whether this context is recognized for this vowel sequence
+    my $valid_context = 0;
+    (defined $PNY_AGREE{$vseq}) or die "Unexpected";
+    for my $vc (@{$PNY_AGREE{$vseq}}) {
+      if ($vc eq $vctx) {
+        $valid_context = 1;
+        last;
+      }
+    }
+    
+    # If we didn't find a valid context, check for the exceptional case
+    # where the vowel sequence is "ue", the context is "ue", and the
+    # initial consonant is "j" "q" or "x"
+    unless ($valid_context) {
+      if (($vseq eq 'ue') and ($vctx eq 'ue') and
+            (($initial eq 'j') or ($initial eq 'q') or
+                ($initial eq 'x'))) {
+        $valid_context = 1;
+      }
+    }
+    
+    # Make sure vowel sequence is valid in context
+    ($valid_context) or return undef;
+    
+    # If initial consonant is labial, make sure vowel sequence is not
+    # "uo" (it should always be changed to "o" in this case)
+    if ($initial =~ /\A[bpmf]\z/) {
+      (not ($vseq eq 'uo')) or return undef;
+    }
+    
+    # If initial consonant is alveolo-palatal, make sure vowel sequence
+    # does not begin with u-umlaut (it should always be changed to plain
+    # u in this case)
+    if ($initial =~ /\A[jqx]\z/) {
+      (not ($vseq =~ /\Aü/)) or return undef;
+    }
+    
+    # Push parsed representation of syllable
+    push @mps, ([
+      $initial, $vseq, $final, $erhua, $tone
+    ]);
+  }
+  
+  # Assemble all the syllables in standard Pinyin
+  my @results;
+  for my $rec (@mps) {
+    # Get parsed representation
+    my $initial = $rec->[0];
+    my $vowel   = $rec->[1];
+    my $final   = $rec->[2];
+    my $erhua   = $rec->[3];
+    my $tone    = $rec->[4];
+    
+    # If this is not the very first syllable AND the initial is empty,
+    # set it to an apostrophe
+    if (($#results >= 0) and (length($initial) < 1)) {
+      $initial = "'";
+    }
+    
+    # If tone is not 5, then we need to add a diacritic to the vowel
+    # sequence
+    unless ($tone == 5) {
+      # Determine the proper combining diacritic
+      my $dia;
+      if ($tone == 1) {
+        $dia = "\x{304}";
+        
+      } elsif ($tone == 2) {
+        $dia = "\x{301}";
+        
+      } elsif ($tone == 3) {
+        $dia = "\x{30c}";
+        
+      } elsif ($tone == 4) {
+        $dia = "\x{300}";
+        
+      } else {
+        die "Unexpected";
+      }
+      
+      # Replace vowel sequence with acute accent diacritic sequence
+      (defined $PNY_TONAL{$vowel}) or die "Unexpected";
+      $vowel = $PNY_TONAL{$vowel};
+      
+      # If desired diacritic is something other than acute accent,
+      # replace the acute accent with proper mark
+      unless ($dia eq "\x{301}") {
+        $vowel = NFD($vowel);
+        $vowel =~ s/\x{301}/$dia/g;
+        $vowel = NFC($vowel);
+      }
+    }
+    
+    # Add this syllable to results
+    push @results, ($initial . $vowel . $final . $erhua);
+  }
+  
+  # Return assembled result
+  return join '', @results;
 }
 
 =back
