@@ -11,7 +11,9 @@ Sino::Util - Utility functions for Sino.
           han_count
           parse_measures
           extract_pronunciation
-          extract_xref);
+          extract_xref
+          tocfl_pinyin
+          cedict_pinyin);
     
     # Get the blocklist with each traditional character in a hash
     use SinoConfig;
@@ -80,6 +82,15 @@ Sino::Util - Utility functions for Sino.
           $pinyin = $xref->[2];
         }
       }
+    }
+    
+    # Convert TOCFL-style Pinyin to standard Pinyin
+    my $standard_pinyin = tocfl_pinyin($tocfl_pinyin);
+    
+    # Convert CC-CEDICT-style Pinyin to standard Pinyin
+    my $standard_pinyin = cedict_pinyin($cedict_pinyin);
+    if (defined $standard_pinyin) {
+      ...
     }
 
 # DESCRIPTION
@@ -267,6 +278,43 @@ individual functions for further information.
 
     If no cross-reference annotation could be found in the given entry, then
     this function returns `undef`.
+
+- **tocfl\_pinyin(str)**
+
+    Given a string containing Pinyin in TOCFL format, normalize it to
+    standard Pinyin and return the result.  Fatal errors occur if the passed
+    string is not in the expected TOCFL Pinyin format.
+
+    This function does not handle variant notation involving parentheses and
+    slashes, so you have to decompose TOCFL Pinyin containing parentheses or
+    slashes before passing it through this function.
+
+    The given string must be a Unicode string.  Do not pass a binary string
+    that is encoded in UTF-8.
+
+- **cedict\_pinyin(str)**
+
+    Given a string containing Pinyin in CC-CEDICT format, normalize it to
+    standard Pinyin and return the result, or `undef` if the conversion
+    failed.
+
+    **Warning:** This function is _not_ able to normalize all the Pinyin
+    that is actually used within CC-CEDICT.  In particular, Pinyin that
+    contains Latin letters by themselves (for abbreviations), Pinyin for
+    certain proper names or sayings that includes punctuation marks, Pinyin
+    that includes the `xx` crossed-out notation, and Pinyin that includes
+    syllabic `m` will fail normalization by this function.  This function
+    is only designed for the "regular" Pinyin cases found in CC-CEDICT.
+
+    Normalized results will always be in all lowercase, following standard
+    Pinyin format.  CC-CEDICT uses capitalized Pinyin syllables to indicate
+    proper names.  If you want to preserve this information, you should scan
+    the original CC-CEDICT string for any uppercase ASCII letters.  There is
+    no way to recover this information just from the normalized Pinyin
+    returned by this function.
+
+    The given string must be a Unicode string.  Do not pass a binary string
+    that is encoded in UTF-8.
 
 # AUTHOR
 
