@@ -4,6 +4,7 @@ This directory contains documentation related to Sino:
 
 - `config.md` - Instructions for properly configuring Sino scripts
 - `depends.md` - Dependencies of the Sino scripts
+- `pinyin.md` - Notes about Pinyin formats
 - `TOCFL.md` - Notes about the TOCFL data files
 - `COCT.md` - Notes about the COCT data files
 
