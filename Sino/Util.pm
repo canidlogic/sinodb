@@ -2,6 +2,10 @@ package Sino::Util;
 use parent qw(Exporter);
 use strict;
 
+# @@TODO: add vowel context validity checks to tocfl_pinyin() too
+# @@TODO: update Pinyin doc with yai context for ai
+# @@TODO: update synopsis
+
 # We will use UTF-8 in string literals and some regular expressions.
 #
 # The extended character set in this source file is limited to diacritic
@@ -17,6 +21,7 @@ our @EXPORT_OK = qw(
                   parse_measures
                   extract_pronunciation
                   extract_xref
+                  parse_cites
                   tocfl_pinyin
                   cedict_pinyin);
 
@@ -37,6 +42,7 @@ Sino::Util - Utility functions for Sino.
         parse_measures
         extract_pronunciation
         extract_xref
+        parse_cites
         tocfl_pinyin
         cedict_pinyin);
   
@@ -106,6 +112,24 @@ Sino::Util - Utility functions for Sino.
       if (scalar(@$xref) >= 3) {
         $pinyin = $xref->[2];
       }
+    }
+  }
+  
+  # Parse gloss into citation array
+  my @cites = parse_cites($gloss);
+  for(my $i = 0; $i <= $#cites; $i++) {
+    if (($i % 2) == 0) {
+      my $literal_string = $cites[$i];
+      ...
+      
+    } else {
+      my $cite_trad = $cites[$i]->[0];
+      my $cite_simp = $cites[$i]->[1];
+      my $cite_pny;
+      if (scalar(@{$cites[$i]}) >= 3) {
+        $cite_pny = $cites[$i]->[2];
+      }
+      ...
     }
   }
   
@@ -226,6 +250,9 @@ my %PNY_TONAL = (
 # EXCEPTION:  "ue" also has a context "ue" but only when used with an
 # initial consonant "j" "q" or "x".
 #
+# NOTE: "yai" is added as an additional context for ai, as it is present
+# in the TOCFL data.
+#
 # This is used to check that vowel sequences are in valid contexts.
 #
 my %PNY_AGREE = (
@@ -235,7 +262,7 @@ my %PNY_AGREE = (
   'o'   => ['o', 'wo', 'ong', 'yong'],
   'u'   => ['u', 'wu', 'yu', 'un', 'yun'],
   'ü'   => ['ü', 'ün'],
-  'ai'  => ['ai', 'wai'],
+  'ai'  => ['ai', 'wai', 'yai'],
   'ao'  => ['ao', 'yao'],
   'ei'  => ['ei', 'wei'],
   'ia'  => ['ia', 'ian', 'iang'],
@@ -594,34 +621,32 @@ sub han_count {
 
 =item B<parse_measures(str)>
 
-Given a string containing a gloss, parse it as a special gloss
-containing measure/classifier words, if possible.
+Given a string containing a gloss, attempt to extract a measure word
+(classifier) gloss.
 
 The given string must be a Unicode string.  Do not pass a binary string
 that is encoded in UTF-8.
 
-If the given string is recognized as a gloss containing measure words
-and nothing else, then this function will return an array reference to a
-non-empty array.  Each array element will be a reference to a subarray.
-Each subarray has three elements:  the traditional Han rendering of the
-measure word, the simplified Han rendering of the measure word, and the
-Pinyin syllables (in CC-CEDICT format, with no surrounding square
-brackets).  If traditional and simplified Han renderings are the same,
-the same string is duplicated across both.  It is possible for words to
-have multiple measure words in one of these glosses, in which case the
-returned array will have more than one element.
+If the given string is wholly a classifier gloss or has a parenthetical
+classifier gloss, then this function will return an array reference to
+an array with two elements.  The first element is a string containing
+the gloss with the measure-word gloss removed.  (This first element is
+an empty string if the whole gloss is a classifier gloss.)  The second
+element is another array reference to an array of one or more classifier
+subarrays.
 
-The Pinyin will be normalized with a single space between syllables, no
-leading or trailing whitespace, and at least one syllable.  Also, all
-syllables will be verified to be a sequence of one or more lowercase
-ASCII letters and colons followed by a single decimal digit in range
-1-5.  No further checking is performed beyond that.  If the Pinyin
-doesn't normalize correctly (for example, there is an uppercase letter),
-then this function will return C<undef> indicating the gloss is not a
-valid measures gloss.
+Classifier subarrays have two or three elements.  The first two elements
+are always the traditional Han rendering of the measure word and the
+simplified Han rendering of the measure word.  (If both traditional and
+simplified are the same, the same string will be duplicated in both
+elements.)  If there was Pinyin present in the classifier gloss, then it
+will be the third element of this subarray, else the third element will
+not be present.  If Pinyin is present, it will already have been
+normalized with cedict_pinyin() and therefore be in standard Pinyin
+format.
 
-If the given string is not recognized as a gloss containing measure
-words, then C<undef> is returned.
+If the given string does not have any recognized measure-word gloss
+within it, then C<undef> is returned.
 
 =cut
 
@@ -631,7 +656,50 @@ sub parse_measures {
   my $str = shift;
   (not ref($str)) or die "Wrong parameter type, stopped";
   
-  # Start with an undefined result
+  # If there is a parenthetical classifier gloss, then recursively
+  # handle that
+  if ($str =~ /\A(.*)(\(\s*CL\s*:[^\(\)]*\))(.*)\z/i) {
+    # We got a parenthetical, so parse the string
+    my $prefix = $1;
+    my $island = $2;
+    my $suffix = $3;
+    
+    # Whitespace-trim prefix and suffix
+    $prefix =~ s/\A\s+//;
+    $prefix =~ s/\s+\z//;
+    
+    $suffix =~ s/\A\s+//;
+    $suffix =~ s/\s+\z//;
+    
+    # If both prefix and suffix are non-empty, altered gloss is the
+    # prefix and suffix separated by space, otherwise altered gloss is
+    # just the two next to each other
+    my $altered;
+    if ((length($prefix) > 0) and (length($suffix) > 0)) {
+      $altered = "$prefix $suffix";
+    } else {
+      $altered = $prefix . $suffix;
+    }
+    
+    # Trim leading and trailing whitespace and parentheses from the
+    # parenthetical
+    $island =~ s/\A\s*\(\s*//;
+    $island =~ s/\s*\)\s*//;
+    
+    # Recursively attempt to parse the island
+    my $retval = parse_measures($island);
+    
+    # If recursive parsing succeeded, then alter the recursive return
+    # value to include the altered gloss without the parenthetical
+    if (defined $retval) {
+      $retval->[0] = $altered;
+    }
+    
+    # Return the possibly altered recursive return value
+    return $retval;
+  }
+  
+  # No parenthetical case, so start with an undefined result
   my $result = undef;
   
   # Only proceed if we get a basic match on the format
@@ -642,21 +710,21 @@ sub parse_measures {
           \s*
           (
             [\x{4e00}-\x{9fff}]+
-            (?:\|[\x{4e00}-\x{9fff}]+)?
+            (?:[\|\x{ff5c}][\x{4e00}-\x{9fff}]+)?
             \s*
-            \[
+            (?:\[
             [^\[\],]+
-            \]
+            \])?
             (?:
               \s*
               ,
               \s*
               [\x{4e00}-\x{9fff}]+
-              (?:\|[\x{4e00}-\x{9fff}]+)?
+              (?:[\|\x{ff5c}][\x{4e00}-\x{9fff}]+)?
               \s*
-              \[
+              (?:\[
               [^\[\],]+
-              \]
+              \])?
             )*
           )
           \s*
@@ -680,12 +748,14 @@ sub parse_measures {
                       \s*
                       (
                         [\x{4e00}-\x{9fff}]+
-                        (?:\|[\x{4e00}-\x{9fff}]+)?
+                        (?:[\|\x{ff5c}][\x{4e00}-\x{9fff}]+)?
                       )
                       \s*
-                      \[
-                        ([^\[\],]+)
-                      \]
+                      (
+                        (?:\[
+                          [^\[\],]+
+                        \])?
+                      )
                       \s*
                     /x) or die "Unexpected";
       my $han_raw = $1;
@@ -694,8 +764,8 @@ sub parse_measures {
       # Get traditional and simplified Han readings
       my $han_trad;
       my $han_simp;
-      if ($han_raw =~ /\|/) {
-        my @ha = split /\|/, $han_raw;
+      if ($han_raw =~ /[\|\x{ff5c}]/) {
+        my @ha = split /[\|\x{ff5c}]/, $han_raw;
         ($#ha == 1) or die "Unexpected";
         $han_trad = $ha[0];
         $han_simp = $ha[1];
@@ -705,36 +775,40 @@ sub parse_measures {
         $han_simp = $han_raw;
       }
       
-      # Trim leading and trailing whitespace from Pinyin, and parsing
-      # fails if result is empty
-      $pny_raw =~ s/\A\s+//;
-      $pny_raw =~ s/\s+\z//;
-      unless (length($pny_raw) > 0) {
-        $parse_ok = 0;
-        last;
-      }
+      # Define has_pinyin to indicate whether pinyin is present, and the
+      # variable to hold the pinyin if present
+      my $has_pinyin = 0;
+      my $pinyin;
       
-      # Split Pinyin into syllables separated by whitespace
-      my @syls = split ' ', $pny_raw;
-      ($#syls >= 0) or die "Unexpected";
+      # If Pinyin not empty, parse it
+      unless ($pny_raw =~ /\A\s*\z/) {
       
-      # Verify that each Pinyin syllable is a sequence of one or more
-      # lowercase ASCII letters and colons, followed by a decimal digit
-      # in range 1-5, else parsing fails
-      for my $syl (@syls) {
-        unless ($syl =~ /\A[a-z][a-z:]*[1-5]\z/) {
+        # Non-empty Pinyin, so set flag
+        $has_pinyin = 1;
+      
+        # Trim leading and trailing whitespace and square brackets from
+        # Pinyin, and parsing fails if result is empty
+        $pny_raw =~ s/\A\s*\[\s*//;
+        $pny_raw =~ s/\s*\]\s*\z//;
+        unless (length($pny_raw) > 0) {
+          $parse_ok = 0;
+          last;
+        }
+        
+        # Attempt to normalize Pinyin
+        $pinyin = cedict_pinyin($pny_raw);
+        unless (defined $pinyin) {
           $parse_ok = 0;
           last;
         }
       }
-      ($parse_ok) or last;
-      
-      # Get finished pinyin by rejoining syllables with a single space
-      # between
-      my $pinyin = join ' ', @syls;
       
       # Add to results
-      push @results, ([$han_trad, $han_simp, $pinyin]);
+      if ($has_pinyin) {
+        push @results, ([$han_trad, $han_simp, $pinyin]);
+      } else {
+        push @results, ([$han_trad, $han_simp]);
+      }
     }
 
     # If parsing was OK, set the return result as a reference to the
@@ -742,6 +816,11 @@ sub parse_measures {
     if ($parse_ok) {
       $result = \@results;
     }
+  }
+
+  # If result is defined, then add an empty string as the altered gloss
+  if (defined $result) {
+    $result = ['', $result];
   }
 
   # Return result
@@ -774,13 +853,9 @@ C<Beijing> C<Taiwan> C<colloquially> C<old> C<commonly> and so forth.
 The context is never empty.
 
 The third element is an array reference to a subarray storing the Pinyin
-strings for the alternate pronunciation.  Each string has normalized
-Pinyin such that there is exactly one space between syllables, no
-leading or trailing whitespace, and at least one syllable.  Pinyin
-syllables must be a lowercase or uppercase ASCII letter, followed by
-zero or more lowercase ASCII letters or colons, followed by a decimal
-digit in range 1-5.  There will be at least one Pinyin string in the
-array.
+strings for the alternate pronunciation.  The Pinyin will have already
+been normalized by running it through cedict_pinyin().  There will be at
+least one Pinyin string in the array.
 
 The fourth and final element is a string specifying a condition for when
 the alternate pronunciation is used.  It may be empty if there is no
@@ -997,23 +1072,12 @@ sub extract_pronunciation {
         last;
       }
       
-      # Split into tokens around whitespace
-      my @tks = split ' ', $pny_raw;
-      ($#tks >= 0) or die "Unexpected";
-      
-      # Make sure each token is an ASCII letter, followed by zero or
-      # more lowercase ASCII letters and colons, followed by a digit
-      # 1-5
-      for my $tk (@tks) {
-        unless ($tk =~ /\A[A-Za-z][a-z:]*[1-5]\z/) {
-          $parse_ok = 0;
-          last;
-        }
+      # Attempt to normalize the Pinyin
+      my $pny = cedict_pinyin($pny_raw);
+      unless (defined $pny) {
+        $parse_ok = 0;
+        last;
       }
-      ($parse_ok) or last;
-      
-      # Rejoin with a single space between each syllable
-      my $pny = join ' ', @tks;
       
       # Add to normalized Pinyin array
       push @pnys, ( $pny );
@@ -1072,10 +1136,8 @@ cross-reference sub-subarrays are either two string elements, the Han
 traditional reading and the Han simplified reading, or three string
 elements, the Han traditional reading, the Han simplified reading, and
 the Pinyin.  If traditional and simplified readings are the same, both
-elements will have the same value.  Pinyin is normalized to no leading
-or trailing whitespace, exactly one space between syllables, and each
-syllable is an ASCII letter, followed by zero or more ASCII lowercase
-letters and colons, followed by a decimal digit 1-5.
+elements will have the same value.  Pinyin is normalized according to
+the function cedict_pinyin().
 
 The fifth element is a suffix, which is empty if there is no suffix.
 This clarifies what is at the cross-referenced entry, or provides other
@@ -1560,21 +1622,11 @@ sub extract_xref {
         return undef;
       }
       
-      # (Pinyin) Split into tokens around whitespace
-      my @tks = split ' ', $pny_raw;
-      ($#tks >= 0) or die "Unexpected";
-      
-      # Make sure each token is an ASCII letter, followed by zero or
-      # more lowercase ASCII letters and colons, followed by a digit
-      # 1-5
-      for my $tk (@tks) {
-        unless ($tk =~ /\A[A-Za-z][a-z:]*[1-5]\z/) {
-          return undef;
-        }
+      # (Pinyin) Attempt to normalize Pinyin
+      my $pny = cedict_pinyin($pny_raw);
+      unless (defined $pny) {
+        return undef;
       }
-      
-      # (Pinyin) Rejoin with a single space between each syllable
-      my $pny = join ' ', @tks;
       
       # Add to links
       push @xresult, ([$han_trad, $han_simp, $pny]);
@@ -1593,21 +1645,11 @@ sub extract_xref {
         return undef;
       }
       
-      # (Pinyin) Split into tokens around whitespace
-      my @tks = split ' ', $pny_raw;
-      ($#tks >= 0) or die "Unexpected";
-      
-      # Make sure each token is an ASCII letter, followed by zero or
-      # more lowercase ASCII letters and colons, followed by a digit
-      # 1-5
-      for my $tk (@tks) {
-        unless ($tk =~ /\A[A-Za-z][a-z:]*[1-5]\z/) {
-          return undef;
-        }
+      # (Pinyin) Attempt to normalize Pinyin
+      my $pny = cedict_pinyin($pny_raw);
+      unless (defined $pny) {
+        return undef;
       }
-      
-      # (Pinyin) Rejoin with a single space between each syllable
-      my $pny = join ' ', @tks;
       
       # Add to links
       push @xresult, ([$han_trad, $han_simp, $pny]);
@@ -1627,6 +1669,145 @@ sub extract_xref {
     \@xresult,
     $suffix
   ];
+}
+
+=item B<parse_cites(str)>
+
+Parse a given gloss into a citation array.
+
+The return value is an array in list context of one or more elements.
+The first, third, fifth, etc. elements will be literal strings.  The
+second, fourth, sixth, etc. elements will be subarray references
+defining citations.
+
+Citation subarrays consist of two or three elements.  The first two
+elements are the traditional and simplified Han renderings.  (If
+traditional and simplified are the same, both of these will be the same
+string.)  If the third element is present, it is a Pinyin reading,
+normalized according to cedict_pinyin().
+
+=cut
+
+sub parse_cites {
+  # Get and check parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  # Look for all candidate citations within the string
+  my @candidates;
+  
+  while ($str =~ /
+            ([\x{4e00}-\x{9fff}]+
+            (?:[\|\x{ff5c}][\x{4e00}-\x{9fff}]+)?
+            (?:\[
+            [^\[\]]+
+            \])?)
+              /gx) {
+    my $citestr = $1;
+    my $citepos = pos($str) - length($citestr);
+    push @candidates, ([$citepos, $citestr]);
+  }
+  
+  # Build the parsed citations list, each element containing the
+  # position and length of citation in the original string and the
+  # reference to the parsed citation subarray
+  my @citelist;
+  for my $rec (@candidates) {
+    # Get current candidate string
+    my $cstr = $rec->[1];
+    
+    # Parse candidate string
+    ($cstr =~ /\A
+            ([\x{4e00}-\x{9fff}]+)
+            ((?:[\|\x{ff5c}][\x{4e00}-\x{9fff}]+)?)
+            ((?:\[
+            [^\[\]]+
+            \])?)
+              \z/x) or next;
+    
+    my $htrad = $1;
+    my $hsimp = $2;
+    my $pkey  = $3;
+    
+    # Trim leading and trailing whitespace and square brackets from the
+    # Pinyin key
+    $pkey =~ s/\A\s*\[\s*//;
+    $pkey =~ s/\s*\]\s*\z//;
+    
+    # Attempt to normalize the Pinyin if present
+    my $has_pinyin = 0;
+    my $pinyin;
+    
+    if (length($pkey) > 0) {
+      $has_pinyin = 1;
+      $pinyin = cedict_pinyin($pkey);
+      (defined $pinyin) or next;
+    }
+    
+    # If simplified is present, drop the leading bar; else, copy the
+    # traditional to the simplified
+    if (length($hsimp) > 0) {
+      $hsimp =~ s/\A[\|\x{ff5c}]//;
+    } else {
+      $hsimp = $htrad;
+    }
+    
+    # If we got here, add to the citation list
+    my $cite;
+    if ($has_pinyin) {
+      $cite = [$htrad, $hsimp, $pinyin];
+    } else {
+      $cite = [$htrad, $hsimp];
+    }
+    
+    push @citelist, ([
+      $rec->[0], length($rec->[1]), $cite
+    ]);
+  }
+  
+  # Start the results array empty
+  my @results;
+  
+  # If there are no citations, just return a single-element array with
+  # just the passed string and proceed no further
+  if (scalar(@citelist) < 1) {
+    push @results, ($str);
+    return @results;
+  }
+  
+  # At least one citation, so figure out what comes in the original
+  # string after the very last citation
+  my $trailer = substr(
+                    $str,
+                    $citelist[$#citelist]->[0]
+                      + $citelist[$#citelist]->[1]);
+  
+  # Build the result array except for the trailer
+  for(my $i = 0; $i <= $#citelist; $i++) {
+    # Get the start of the preceding segment
+    my $preceding_i = 0;
+    if ($i > 0) {
+      $preceding_i = $citelist[$i - 1]->[0] + $citelist[$i - 1]->[1];
+    }
+    
+    # Get the segment preceding this citation
+    my $segment = substr(
+                    $str,
+                    $preceding_i,
+                    $citelist[$i]->[0] - $preceding_i);
+    
+    # Push the segment and then this citation
+    push @results, ($segment, $citelist[$i]->[2]);
+  }
+  
+  # Finally, push the trailer if it is not empty
+  if (length($trailer) > 0) {
+    push @results, ($trailer);
+  }
+  
+  # Return results
+  return @results;
 }
 
 =item B<tocfl_pinyin(str)>
@@ -2001,7 +2182,7 @@ sub tocfl_pinyin {
     my $cb = $cvs[$i];
     
     # Block must be optional final, optional erhua, and optional initial
-    ($cb =~ /\A([RGN]?)([Q]?)([pbtdkgmnczCZqjfsSxhlr]?)\z/) or
+    ($cb =~ /\A([RGN]?)([Q]?)([pbtdkgmnczCZqjfsSxhlryw]?)\z/) or
       die "Invalid Pinyin, stopped";
     
     my $final   = $1;
