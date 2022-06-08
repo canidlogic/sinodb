@@ -10,7 +10,8 @@ use Sino::DB;
 use Sino::Util qw(
                 parse_measures
                 extract_pronunciation
-                extract_xref);
+                extract_xref
+                parse_cites);
 use SinoConfig;
 
 =head1 NAME
@@ -24,6 +25,7 @@ or square brackets, and the words they belong to.
   ./ugloss.pl -nocl
   ./ugloss.pl -nopk
   ./ugloss.pl -noxref
+  ./ugloss.pl -nocites
   ./ugloss.pl -wordid
 
 =head1 DESCRIPTION
@@ -44,6 +46,10 @@ The C<-noxref> option uses the C<extract_xref> function of C<Sino::Util>
 on glosses before they are examined, so that cross-references won't be
 included in the reported list.
 
+The C<-nocites> option uses the C<parse_cites> function of C<Sino::Util>
+on glosses before they are examined, so that citations won't be included
+in the reported list.
+
 The C<-wordid> causes only a list of word IDs to be reported, rather
 than glosses with word IDs.
 
@@ -63,10 +69,11 @@ binmode(STDOUT, ":encoding(UTF-8)") or
 
 # Parse options
 #
-my $flag_nocl   = 0;
-my $flag_nopk   = 0;
-my $flag_noxref = 0;
-my $flag_wordid = 0;
+my $flag_nocl    = 0;
+my $flag_nopk    = 0;
+my $flag_noxref  = 0;
+my $flag_nocites = 0;
+my $flag_wordid  = 0;
 
 for(my $i = 0; $i <= $#ARGV; $i++) {
   if ($ARGV[$i] eq '-nocl') {
@@ -80,6 +87,9 @@ for(my $i = 0; $i <= $#ARGV; $i++) {
   
   } elsif ($ARGV[$i] eq '-wordid') {
     $flag_wordid = 1;
+    
+  } elsif ($ARGV[$i] eq '-nocites') {
+    $flag_nocites = 1;
     
   } else {
     die "Unrecognized option '$ARGV[$i]', stopped";
@@ -134,28 +144,34 @@ for(my $rec = $sth->fetchrow_arrayref;
     }
   }
   
+  # If -nocl mode, then attempt to extract measure word gloss and
+  # replace gloss with altered gloss
+  if ($flag_nocl) {
+    my $retval = parse_measures($gloss);
+    if (defined $retval) {
+      $gloss = $retval->[0];
+    }
+  }
+  
+  # If -nocites mode, then attempt to extract citations and replace
+  # gloss with literal strings
+  if ($flag_nocites) {
+    my @retarr = parse_cites($gloss);
+    $gloss = '';
+    for(my $i = 0; $i <= $#retarr; $i = $i + 2) {
+      $gloss = $gloss . $retarr[$i];
+    }
+  }
+  
   # Report if gloss contains anything outside of US-ASCII printing range
   unless ($gloss =~ /\A[\x{20}-\x{5a}\x{5c}\x{5e}-\x{7e}]*\z/) {
-    # Start print_request at 1
-    my $print_request = 1;
-    
-    # If in -nocl mode, skip glosses that match measure words
-    if ($flag_nocl) {
-      if (defined(parse_measures($gloss))) {
-        $print_request = 0;
+    if ($flag_wordid) {
+      if (not defined $id_hash{"$word_id"}) {
+        print "$word_id\n";
+        $id_hash{"$word_id"} = 1;
       }
-    }
-    
-    # Print if requested
-    if ($print_request) {
-      if ($flag_wordid) {
-        if (not defined $id_hash{"$word_id"}) {
-          print "$word_id\n";
-          $id_hash{"$word_id"} = 1;
-        }
-      } else {
-        print "$word_id: $gloss\n";
-      }
+    } else {
+      print "$word_id: $gloss\n";
     }
   }
 }
