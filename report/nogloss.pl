@@ -20,7 +20,8 @@ glosses for any of their Han renderings.
   ./nogloss.pl -min 4
   ./nogloss.pl -max 2
   ./nogloss.pl -multi
-  ./nogloss.pl -level 1
+  ./nogloss.pl -level 1-6
+  ./nogloss.pl -han
 
 =head1 DESCRIPTION
 
@@ -34,7 +35,7 @@ The C<-multi> option, if provided, specifies that only records that have
 at least two Han renderings should be checked.
 
 The C<-level> option, if specified, specifies that only records that
-have a word level matching the given level are considered.
+have a word level in the given range are considered.
 
 The C<-min> option, if provided, specifies the minimum number of
 characters at least one of the Han renderings must have for the record
@@ -44,6 +45,9 @@ The C<-max> option, if provided, specifies the maximum number of
 characters I<all> Han renderings must have for the record to be checked.
 If not provided, an undefined default is left that indicates there is no
 maximum.
+
+The C<-han> option, if provided, prints all the Han traditional
+renderings of discovered words instead of their word IDs.
 
 You can mix these options any way you wish.
 
@@ -56,12 +60,19 @@ before using this script.
 # Program entrypoint
 # ==================
 
+# Switch output to UTF-8
+#
+binmode(STDOUT, ":encoding(UTF-8)") or
+  die "Failed to set UTF-8 output, stopped";
+
 # Parse options
 #
 my $min_filter   = undef;
 my $max_filter   = undef;
-my $level_filter = undef;
-my $multi_flag = 0;
+my $level_min    = undef;
+my $level_max    = undef;
+my $multi_flag   = 0;
+my $han_flag     = 0;
 
 for(my $i = 0; $i <= $#ARGV; $i++) {
   if ($ARGV[$i] eq '-min') {
@@ -85,14 +96,27 @@ for(my $i = 0; $i <= $#ARGV; $i++) {
   } elsif ($ARGV[$i] eq '-level') {
     ($i < $#ARGV) or die "-level requires argument, stopped";
     $i++;
-    ($ARGV[$i] =~ /\A[0-9]+\z/) or
-      die "Invalid parameter for -level, stopped";
-    (not defined $level_filter) or
+    (not defined $level_min) or
       die "Can't use -level option multiple times, stopped";
-    $level_filter = int($ARGV[$i]);
+    if ($ARGV[$i] =~ /\A[0-9]+\z/) {
+      $level_min = int($ARGV[$i]);
+      $level_max = $level_min;
+      
+    } elsif ($ARGV[$i] =~ /\A([0-9]+)\-([0-9]+)\z/) {
+      $level_min = int($1);
+      $level_max = int($2);
+      
+      ($level_min <= $level_max) or die "Invalid level range, stopped";
+      
+    } else {
+      die "Invalid parameter for -level, stopped";
+    }
   
   } elsif ($ARGV[$i] eq '-multi') {
     $multi_flag = 1;
+    
+  } elsif ($ARGV[$i] eq '-han') {
+    $han_flag = 1;
     
   } else {
     die "Unrecognized option '$ARGV[$i]', stopped";
@@ -124,8 +148,8 @@ my $qr = $dbh->selectall_arrayref(
 
 for my $r (@$qr) {
   my $use_word = 1;
-  if (defined $level_filter) {
-    unless ($r->[1] == $level_filter) {
+  if (defined $level_min) {
+    unless (($r->[1] >= $level_min) and ($r->[1] <= $level_max)) {
       $use_word = 0;
     }
   }
@@ -227,9 +251,15 @@ for my $word_id (@word_list) {
     }
   }
   
-  # Report word ID if no gloss
+  # Report word ID or Han readings if no gloss
   unless ($has_gloss) {
-    print "$word_id\n";
+    if ($han_flag) {
+      for my $reading (@hantrads) {
+        print "$reading\n";
+      }
+    } else {
+      print "$word_id\n";
+    }
   }
 }
 
