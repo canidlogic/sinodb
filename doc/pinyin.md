@@ -121,7 +121,7 @@ __Rule 3:__ If there is only one vowel letter (not counting fake initial consona
 
 __Rule 4:__ If rule (3) does not apply, then the marker vowel is the vowel representing the nucleus.
 
-__Rule 5:__ If rule (4) does not apply either because the vowel representing the nucleus is not present in the transcription, then the marker vowel is the first vowel after the leading glide.  (There will always be a leading glide in this case.)
+__Rule 5:__ If rule (4) does not apply because the vowel representing the nucleus is not present in the transcription, then the marker vowel is the first vowel after the leading glide.  (There will always be a leading glide in this case.)
 
 See the chart in the later section on "Parsing vowel sequences" for a comprehensive view of where the tone diacritics are applied in all possible multi-vowel sequences according to rules 3-5.
 
