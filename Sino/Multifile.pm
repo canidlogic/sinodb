@@ -112,7 +112,7 @@ sub load {
   # read (where 1 is the first line), or 0 when BOS
   $self->{'_linenum'} = 0;
   
-  # When '_state' is 0, '_ltext' stores the line just read, without any
+  # When '_state' is 0, '_rec' stores the line just read, without any
   # line break at the end; else, it is an empty string
   $self->{'_rec'} = '';
   
