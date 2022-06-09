@@ -5,6 +5,7 @@ Sino::Util - Utility functions for Sino.
 # SYNOPSIS
 
     use Sino::Util qw(
+          parse_multifield
           parse_blocklist
           han_exmap
           pinyin_count
@@ -12,8 +13,12 @@ Sino::Util - Utility functions for Sino.
           parse_measures
           extract_pronunciation
           extract_xref
+          parse_cites
           tocfl_pinyin
           cedict_pinyin);
+    
+    # Parse a TOCFL field with multiple values into a list
+    my @vals = parse_multifield($tocfl_field);
     
     # Get the blocklist with each traditional character in a hash
     use SinoConfig;
@@ -84,6 +89,24 @@ Sino::Util - Utility functions for Sino.
       }
     }
     
+    # Parse gloss into citation array
+    my @cites = parse_cites($gloss);
+    for(my $i = 0; $i <= $#cites; $i++) {
+      if (($i % 2) == 0) {
+        my $literal_string = $cites[$i];
+        ...
+        
+      } else {
+        my $cite_trad = $cites[$i]->[0];
+        my $cite_simp = $cites[$i]->[1];
+        my $cite_pny;
+        if (scalar(@{$cites[$i]}) >= 3) {
+          $cite_pny = $cites[$i]->[2];
+        }
+        ...
+      }
+    }
+    
     # Convert TOCFL-style Pinyin to standard Pinyin
     my $standard_pinyin = tocfl_pinyin($tocfl_pinyin);
     
@@ -99,6 +122,35 @@ Provides various utility functions.  See the documentation of the
 individual functions for further information.
 
 # FUNCTIONS
+
+- **parse\_multifield($str)**
+
+    Parse a TOCFL field value containing possible alternate value notations
+    into a sequence of values.
+
+    The return value is an array in list context of all the decoded values.
+    If there is only one value, the array will be length one.  The returned
+    array will never be empty.
+
+    The first alternative value notation that is decoded is the ASCII
+    forward slash, which separates alternatives.
+
+    The second alternative value notation that is decoded is parentheses,
+    which include an optional sequence.  Either standard ASCII parentheses
+    or variant parentheses U+FF08 and U+FF09 may be used.
+
+    Both slashes and parentheticals may be used at the same time.
+
+    The returned list will have no duplicate values in it, even if the
+    passed field value would generate duplicate values if decoded as-is.
+    De-duplication checks are performed by this function and duplicates are
+    silently discarded.
+
+    Fatal errors occur if there is a parsing problem.
+
+    **Warning:** This function will not handle Bopomofo parentheticals
+    correctly.  You must drop these from the TOCFL input before running it
+    through this function.
 
 - **parse\_blocklist($config\_datasets)**
 
@@ -158,34 +210,32 @@ individual functions for further information.
 
 - **parse\_measures(str)**
 
-    Given a string containing a gloss, parse it as a special gloss
-    containing measure/classifier words, if possible.
+    Given a string containing a gloss, attempt to extract a measure word
+    (classifier) gloss.
 
     The given string must be a Unicode string.  Do not pass a binary string
     that is encoded in UTF-8.
 
-    If the given string is recognized as a gloss containing measure words
-    and nothing else, then this function will return an array reference to a
-    non-empty array.  Each array element will be a reference to a subarray.
-    Each subarray has three elements:  the traditional Han rendering of the
-    measure word, the simplified Han rendering of the measure word, and the
-    Pinyin syllables (in CC-CEDICT format, with no surrounding square
-    brackets).  If traditional and simplified Han renderings are the same,
-    the same string is duplicated across both.  It is possible for words to
-    have multiple measure words in one of these glosses, in which case the
-    returned array will have more than one element.
+    If the given string is wholly a classifier gloss or has a parenthetical
+    classifier gloss, then this function will return an array reference to
+    an array with two elements.  The first element is a string containing
+    the gloss with the measure-word gloss removed.  (This first element is
+    an empty string if the whole gloss is a classifier gloss.)  The second
+    element is another array reference to an array of one or more classifier
+    subarrays.
 
-    The Pinyin will be normalized with a single space between syllables, no
-    leading or trailing whitespace, and at least one syllable.  Also, all
-    syllables will be verified to be a sequence of one or more lowercase
-    ASCII letters and colons followed by a single decimal digit in range
-    1-5.  No further checking is performed beyond that.  If the Pinyin
-    doesn't normalize correctly (for example, there is an uppercase letter),
-    then this function will return `undef` indicating the gloss is not a
-    valid measures gloss.
+    Classifier subarrays have two or three elements.  The first two elements
+    are always the traditional Han rendering of the measure word and the
+    simplified Han rendering of the measure word.  (If both traditional and
+    simplified are the same, the same string will be duplicated in both
+    elements.)  If there was Pinyin present in the classifier gloss, then it
+    will be the third element of this subarray, else the third element will
+    not be present.  If Pinyin is present, it will already have been
+    normalized with cedict\_pinyin() and therefore be in standard Pinyin
+    format.
 
-    If the given string is not recognized as a gloss containing measure
-    words, then `undef` is returned.
+    If the given string does not have any recognized measure-word gloss
+    within it, then `undef` is returned.
 
 - **extract\_pronunciation(str)**
 
@@ -213,13 +263,9 @@ individual functions for further information.
     The context is never empty.
 
     The third element is an array reference to a subarray storing the Pinyin
-    strings for the alternate pronunciation.  Each string has normalized
-    Pinyin such that there is exactly one space between syllables, no
-    leading or trailing whitespace, and at least one syllable.  Pinyin
-    syllables must be a lowercase or uppercase ASCII letter, followed by
-    zero or more lowercase ASCII letters or colons, followed by a decimal
-    digit in range 1-5.  There will be at least one Pinyin string in the
-    array.
+    strings for the alternate pronunciation.  The Pinyin will have already
+    been normalized by running it through cedict\_pinyin().  There will be at
+    least one Pinyin string in the array.
 
     The fourth and final element is a string specifying a condition for when
     the alternate pronunciation is used.  It may be empty if there is no
@@ -267,10 +313,8 @@ individual functions for further information.
     traditional reading and the Han simplified reading, or three string
     elements, the Han traditional reading, the Han simplified reading, and
     the Pinyin.  If traditional and simplified readings are the same, both
-    elements will have the same value.  Pinyin is normalized to no leading
-    or trailing whitespace, exactly one space between syllables, and each
-    syllable is an ASCII letter, followed by zero or more ASCII lowercase
-    letters and colons, followed by a decimal digit 1-5.
+    elements will have the same value.  Pinyin is normalized according to
+    the function cedict\_pinyin().
 
     The fifth element is a suffix, which is empty if there is no suffix.
     This clarifies what is at the cross-referenced entry, or provides other
@@ -278,6 +322,21 @@ individual functions for further information.
 
     If no cross-reference annotation could be found in the given entry, then
     this function returns `undef`.
+
+- **parse\_cites(str)**
+
+    Parse a given gloss into a citation array.
+
+    The return value is an array in list context of one or more elements.
+    The first, third, fifth, etc. elements will be literal strings.  The
+    second, fourth, sixth, etc. elements will be subarray references
+    defining citations.
+
+    Citation subarrays consist of two or three elements.  The first two
+    elements are the traditional and simplified Han renderings.  (If
+    traditional and simplified are the same, both of these will be the same
+    string.)  If the third element is present, it is a Pinyin reading,
+    normalized according to cedict\_pinyin().
 
 - **tocfl\_pinyin(str)**
 
