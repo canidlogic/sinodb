@@ -142,6 +142,8 @@ sub DESTROY {
 
 =head1 INSTANCE METHODS
 
+=over 4
+
 =item B<rewind()>
 
 Rewind the data files back to the beginning and change the state of this
