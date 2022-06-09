@@ -14,6 +14,7 @@ use strict;
 use utf8;
 
 our @EXPORT_OK = qw(
+                  parse_multifield
                   parse_blocklist
                   han_exmap
                   pinyin_count
@@ -35,6 +36,7 @@ Sino::Util - Utility functions for Sino.
 =head1 SYNOPSIS
 
   use Sino::Util qw(
+        parse_multifield
         parse_blocklist
         han_exmap
         pinyin_count
@@ -45,6 +47,9 @@ Sino::Util - Utility functions for Sino.
         parse_cites
         tocfl_pinyin
         cedict_pinyin);
+  
+  # Parse a TOCFL field with multiple values into a list
+  my @vals = parse_multifield($tocfl_field);
   
   # Get the blocklist with each traditional character in a hash
   use SinoConfig;
@@ -377,6 +382,139 @@ my %HAN_EX = (
 =head1 FUNCTIONS
 
 =over 4
+
+=item B<parse_multifield($str)>
+
+Parse a TOCFL field value containing possible alternate value notations
+into a sequence of values.
+
+The return value is an array in list context of all the decoded values.
+If there is only one value, the array will be length one.  The returned
+array will never be empty.
+
+The first alternative value notation that is decoded is the ASCII
+forward slash, which separates alternatives.
+
+The second alternative value notation that is decoded is parentheses,
+which include an optional sequence.  Either standard ASCII parentheses
+or variant parentheses U+FF08 and U+FF09 may be used.
+
+Both slashes and parentheticals may be used at the same time.
+
+The returned list will have no duplicate values in it, even if the
+passed field value would generate duplicate values if decoded as-is.
+De-duplication checks are performed by this function and duplicates are
+silently discarded.
+
+Fatal errors occur if there is a parsing problem.
+
+B<Warning:> This function will not handle Bopomofo parentheticals
+correctly.  You must drop these from the TOCFL input before running it
+through this function.
+
+=cut
+
+sub parse_multifield {
+  # Get and check parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  # Normalize variant parentheses into ASCII parentheses
+  $str =~ s/\x{ff08}/\(/g;
+  $str =~ s/\x{ff09}/\)/g;
+  
+  # Get the source array by splitting on slashes
+  my @sa = split /\//, $str;
+  
+  # Define target array to be empty for now
+  my @ta;
+  
+  # Go through each element in the source array and either copy as-is to
+  # target array or split into two elements in target array; also, do
+  # duplication checks so that duplicates are never inserted while
+  # decoding
+  for my $sv (@sa) {
+    # Handle cases
+    if ($sv =~ /\A
+                  ([^\(\)]*)
+                  \(
+                  ([^\(\)]*)
+                  \)
+                  ([^\(\)]*)
+                \z/x) {
+      # Single parenthetical, so split into prefix optional suffix
+      my $prefix = $1;
+      my $option = $2;
+      my $suffix = $3;
+      
+      # Whitespace-trim each
+      $prefix =~ s/\A[ \t]+//;
+      $prefix =~ s/[ \t]+\z//;
+      
+      $option =~ s/\A[ \t]+//;
+      $option =~ s/[ \t]+\z//;
+      
+      $suffix =~ s/\A[ \t]+//;
+      $suffix =~ s/[ \t]+\z//;
+      
+      # Make sure option is not empty after trimming
+      (length($option) > 0) or
+        die "Empty optional, stopped";
+      
+      # Make sure either prefix or suffix (or both) is non-empty
+      ((length($prefix) > 0) or (length($suffix) > 0)) or
+        die "Invalid optional, stopped";
+      
+      # Insert both without and with the optional, but only if not
+      # already in the target array
+      for my $iv ($prefix . $suffix, $prefix . $option . $suffix) {
+        my $dup_found = 0;
+        for my $dvc (@ta) {
+          if ($iv eq $dvc) {
+            $dup_found = 1;
+            last;
+          }
+        }
+        unless ($dup_found) {
+          push @ta, ($iv);
+        }
+      }
+      
+    } elsif ($sv =~ /\A[^\(\)]*\z/) {
+      # No parentheticals, so begin by whitespace trimming
+      $sv =~ s/\A[ \t]+//;
+      $sv =~ s/[ \t]+\z//;
+      
+      # Make sure after trimming not empty
+      (length($sv) > 0) or
+        die "Empty component, stopped";
+      
+      # Push into target array, but only if not already in the
+      # target array
+      my $dup_found = 0;
+      for my $dvc (@ta) {
+        if ($sv eq $dvc) {
+          $dup_found = 1;
+          last;
+        }
+      }
+      unless ($dup_found) {
+        push @ta, ($sv);
+      }
+      
+    } else {
+      # Other cases are invalid
+      die "Invalid record, stopped";
+    }
+  }
+  
+  # Check that target array is not empty
+  ($#ta >= 0) or die "Empty multifield, stopped";
+  
+  # Return the target array
+  return @ta;
+}
 
 =item B<parse_blocklist($config_datasets)>
 
