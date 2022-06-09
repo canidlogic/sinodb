@@ -1,5 +1,9 @@
 # Import notes for TOCFL dataset
 
+These import notes apply to the reformatted mirror of the TOCFL dataset in CSV format, given at the mirror site https://canidlogic.github.io/sinodata/
+
+The original TOCFL dataset was obtained from https://tocfl.edu.tw/index.php/exam/download but note that the Sino database assumes the April 11, 2022 version specifically, which is the version used on the mirror site.
+
 (1) Codepoint range `[U+FF08, U+FF09]` are variant parentheses, which should be replaced by ASCII parentheses immediately.  Only occur in one entry enclosing Bopomofo.
 
 (2) Codepoint `U+200B` is a zero-width space that is inserted between Pinyin syllables in only two records.  It should be dropped when it occurs.
@@ -14,7 +18,7 @@
 
 (7) In one case, there is `conj` used for word class instead of `Conj` otherwise all seems accurate; to fix, normalize case so that first character (always a letter) is uppercase, and anything remaining is lowercase.
 
-(8) Codepoint ranges `U+02CA, U+02D9` and `U+3100, U+3129` are Bopomofo related.  Only occur within parentheses in Chinese headword, where they are used to distinguish pronunciation of an ambiguous character (which is redundant with the pinyin).  Not necessarily at the end of the Chinese headword.  The parentheses and the Bopomofo within can be dropped.
+(8) Codepoint ranges `[U+02CA, U+02D9]` and `[U+3100, U+3129]` are Bopomofo related.  Only occur within parentheses in Chinese headword, where they are used to distinguish pronunciation of an ambiguous character (which is redundant with the pinyin).  Not necessarily at the end of the Chinese headword.  The parentheses and the Bopomofo within can be dropped.
 
 (9) `U+3001` Ideographic comma only occurs in one of the word category labels.  It never appears in Chinese headwords or any other field.
 
