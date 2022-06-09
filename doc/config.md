@@ -8,35 +8,27 @@ Before using the main scripts provided by this project, you must configure the s
 
 ## Step 1: Assembling data files
 
-The data files you need are the TOCFL vocabulary list (8000-word list), the COCT vocabulary list (14,470 words), the CC-CEDICT dictionary, and the supplemental datasets.  The following subsections describe how to obtain these data files in further detail.
+The data files you need are the TOCFL vocabulary list (8000-word list), the COCT vocabulary list (14,470 words), the CC-CEDICT dictionary, and the supplemental datasets.  
 
-### TOCFL vocabulary list
+The easiest way to get the data files is to use the [Sinodata mirror](https://canidlogic.github.io/sinodata/).  You will need the mirrored ZIP archive of CC-CEDICT, the reformatted CSV mirror of TOCFL, and the reformatted CSV mirror of COCT.  Simply decompress each of these archives to get all the needed data files.
 
-The TOCFL source vocabulary list can be downloaded from the following site:
+You will also need the supplemental datasets, which are contained within the `dataset` directory of this project and are already in the correct format.
 
-    https://tocfl.edu.tw/index.php/exam/download
+If you want to directly gather the third-party datasets yourself, see the following subsection:
 
-Follow the link 華語八千詞表 (Chinese language 8000 word list) to download an archive named something like `8000zhuyin_202204.rar`  The archive uses the proprietary RAR archive format, so you may need to use an online converter to convert the file into a non-proprietary archive format if you have troubles opening the archive.
+### Direct sourcing
 
-Within this archive, there should be a large Excel spreadsheet.  This spreadsheet has the TOCFL "8000-word" vocabulary lists, with one spreadsheet tab for each vocabulary level.  Using LibreOffice Calc or some other spreadsheet program, copy each vocabulary list /excluding the header rows/ to a new spreadsheet and then save that spreadsheet copy in Comma-Separated Value (CSV) format, using commas as the separator, no quoting, and UTF-8 encoding.  As a result, you should end up with seven CSV text files corresponding to each of the vocabulary levels within the spreadsheet.  The CSV files must /not/ have a header row with column names; if they do, manually delete the header rows.
+The import process needs extensive manual adjustments, so you should use the specific versions of each of the datasets shown here:
 
-### COCT vocabulary list
+- __TOCFL:__ April 11, 2022 version
+- __COCT:__ December 2, 2020 version
+- __CC-CEDICT:__ May 24, 2022 version
 
-See `COCT.md` for instructions about obtaining the COCT vocabulary list and preparing it in a CSV format that can be imported by Sino.
+You may attempt to use other versions of these datasets, but note that additional adjustments may need to be made to the Sino scripts if there were substantial updates to relevant records.
 
-### CC-CEDICT dictionary
+The CC-CEDICT dataset is distributed in a structured plain-text format that the Sino scripts can directly read.  You must, however, decompress the plain-text file before using it with the scripts.
 
-The CC-CEDICT dictionary data file can be downloaded from the following site:
-
-    https://www.mdbg.net/chinese/dictionary?page=cc-cedict
-
-There should be links to a file named something like `cedict_1_0_ts_utf-8_mdbg`, and then some file extension for a compressed file (either `zip` for Zip or `txt.gz` for a plain-text file compressed with GZip).
-
-Once you download this file, you need to decompress it into a simple plain-text file.  The Sino scripts will /not/ work on a compressed file.
-
-### Supplemental datasets
-
-The supplemental datasets are contained within the `dataset` directory of this project and are already in the correct format.
+The TOCFL and COCT datasets are distributed in proprietary office formats.  You must export them to CSV format before the Sino scripts can use them.  The CSV format should use UTF-8, comma separators, no quoting of values, and no header row.  For TOCFL, each vocabulary level should be in a separate CSV file.  For COCT, there is a single CSV file, in UTF-8 format with comma separators, no quoting of values, and no header row.  For the COCT CSV file, each record has two columns.  The first column is an unsigned decimal integer storing the COCT level of the word.  The second column is the headword(s) from the COCT file.  The word processor version of the COCT vocabulary list is the one that is used, rather than the spreadsheet version (even though both should have the same words).
 
 ## Step 2: Generating the config module
 
@@ -88,7 +80,7 @@ For each script, modify this shebang line so that it is the appropriate path to 
 
 In this example, the `Sino` subdirectory would be located at `/example/path/to/Sino`
 
-You should then also make sure the `SinoConfig.pm` configuratio module that you generated is in that include directory.  In the previous example, you would place it at `/example/path/to/SinoConfig.pm`
+You should then also make sure the `SinoConfig.pm` configuration module that you generated is in that include directory.  In the previous example, you would place it at `/example/path/to/SinoConfig.pm`
 
 If you are using a system such as `cpanm` to install non-core Perl dependencies without registering them in the whole system, this is also a great place to add your local `cpanm` directory to the include path:
 
