@@ -13,6 +13,11 @@ This script iterates through all TOCFL records using the parser module
 standard output.  This allows you to see how the TOCFL dataset is seen
 from the perspective of the parser.
 
+Records on the blocklist will be skipped by this iteration, Pinyin will
+be converted, and corrections will be made.  This is because all of 
+those transformations take place within the `Sino::TOCFL` module, so
+this script gets the filtered results.
+
 # AUTHOR
 
 Noah Johnson, `noah.johnson@loupmail.com`
