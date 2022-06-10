@@ -8,7 +8,7 @@ Sino::TOCFL - Parse through the TOCFL data files.
     use SinoConfig;
     
     # Open the data files
-    my $tvl = Sino::TOCFL->load($config_tocfl);
+    my $tvl = Sino::TOCFL->load($config_tocfl, $config_datasets);
     
     # (Re)start an iteration through the dataset
     $tvl->rewind;
@@ -45,12 +45,18 @@ before using this module.
 
 # CONSTRUCTOR
 
-- **load(data\_paths)**
+- **load(data\_paths, dataset\_path)**
 
     Construct a new TOCFL parser object.  `data_paths` is an array
     reference to the paths to seven CSV files storing the TOCFL data, sorted
     in increasing level of word difficulty.  Normally, you get this array
     reference from the `SinoConfig` module, as shown in the synopsis.
+
+    `dataset_path` is the path to the directory containing Sino
+    supplemental datasets.  This is passed through and used to get an
+    instance of `Sino::Blocklist`.  See that module for further details.
+    Normally, you get this path from the `SinoConfig` module, as shown in
+    the synopsis.
 
     Read-only file handles to the data files are kept open while the object
     is constructed.  Undefined behavior occurs if the data files change 
@@ -113,6 +119,10 @@ before using this module.
 
     Fatal errors occur if this function encounters a TOCFL record line that
     it can't successfully parse.
+
+    The blocklist is consulted, and any TOCFL records for which _all_
+    headwords are on the blocklist will be silently skipped over by this
+    function.
 
 - **han\_readings()**
 
