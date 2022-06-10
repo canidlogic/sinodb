@@ -21,6 +21,11 @@ C<Sino::TOCFL>.  The parsed representation of each record is reported to
 standard output.  This allows you to see how the TOCFL dataset is seen
 from the perspective of the parser.
 
+Records on the blocklist will be skipped by this iteration, Pinyin will
+be converted, and corrections will be made.  This is because all of 
+those transformations take place within the C<Sino::TOCFL> module, so
+this script gets the filtered results.
+
 =cut
 
 # ==================
@@ -34,7 +39,7 @@ binmode(STDOUT, ':encoding(UTF-8)') or
 
 # Load TOCFL data files and rewind
 #
-my $tvl = Sino::TOCFL->load($config_tocfl);
+my $tvl = Sino::TOCFL->load($config_tocfl, $config_datasets);
 $tvl->rewind;
 
 # Step through all TOCFL records
