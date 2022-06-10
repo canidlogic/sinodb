@@ -2,6 +2,7 @@ package Sino::TOCFL;
 use strict;
 
 # Sino modules
+use Sino::Blocklist;
 use Sino::Multifile;
 use Sino::Util qw(parse_multifield tocfl_pinyin);
 
@@ -15,7 +16,7 @@ Sino::TOCFL - Parse through the TOCFL data files.
   use SinoConfig;
   
   # Open the data files
-  my $tvl = Sino::TOCFL->load($config_tocfl);
+  my $tvl = Sino::TOCFL->load($config_tocfl, $config_datasets);
   
   # (Re)start an iteration through the dataset
   $tvl->rewind;
@@ -54,12 +55,18 @@ before using this module.
 
 =over 4
 
-=item B<load(data_paths)>
+=item B<load(data_paths, dataset_path)>
 
 Construct a new TOCFL parser object.  C<data_paths> is an array
 reference to the paths to seven CSV files storing the TOCFL data, sorted
 in increasing level of word difficulty.  Normally, you get this array
 reference from the C<SinoConfig> module, as shown in the synopsis.
+
+C<dataset_path> is the path to the directory containing Sino
+supplemental datasets.  This is passed through and used to get an
+instance of C<Sino::Blocklist>.  See that module for further details.
+Normally, you get this path from the C<SinoConfig> module, as shown in
+the synopsis.
 
 Read-only file handles to the data files are kept open while the object
 is constructed.  Undefined behavior occurs if the data files change 
@@ -73,9 +80,9 @@ This constructor does not actually read anything from the files yet.
 sub load {
   
   # Check parameter count
-  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
   
-  # Get invocant and parameter
+  # Get invocant and parameters
   my $invocant = shift;
   my $class = ref($invocant) || $invocant;
   
@@ -88,6 +95,12 @@ sub load {
     (-f $path) or die "Can't find TOCFL file '$path', stopped";
   }
   
+  my $dataset_path = shift;
+  (not ref($dataset_path)) or die "Wrong parameter types, stopped";
+  
+  # Get a blocklist instance
+  my $bl = Sino::Blocklist->load($dataset_path);
+  
   # Define the new object
   my $self = { };
   bless($self, $class);
@@ -95,6 +108,9 @@ sub load {
   # The '_mr' property will store a Sino::Multifile that can iterate
   # through all the TOCFL files
   $self->{'_mr'} = Sino::Multifile->load($data_paths);
+  
+  # The '_bl' property stores the blocklist object
+  $self->{'_bl'} = $bl;
   
   # The '_state' property will be -1 for BOS, 0 for record, 1 for EOS
   $self->{'_state'} = -1;
@@ -110,117 +126,21 @@ sub load {
 
 =head1 INSTANCE METHODS
 
-=over 4
-
-=item B<rewind()>
-
-Rewind the data files back to the beginning of the whole TOCFL dataset
-and change the state of this parser to Beginning Of Stream (BOS).  This
-is also the initial state of the parser object after construction.  No
-record is currently loaded after calling this function.
-
-This rewinds all the way back to the start of the first vocabulary
-level, regardless of which vocabulary level you are currently on.
-
 =cut
 
-sub rewind {
-  
-  # Check parameter count
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  
-  # Get self
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  # Rewind the underlying multifile
-  $self->{'_mr'}->rewind;
-  
-  # Clear state to BOS
-  $self->{'_state'  } =  -1;
-  $self->{'_rec'    } = { };
-}
+# ========================
+# Private instance methods
+# ========================
 
-=item B<word_level()>
-
-Get the TOCFL word level that we are currently examining.  This property
-is always available, even if a record is not currently loaded.  The
-line_number() is located within the file indicated by this level.
-
-The TOCFL word levels are 1-7, where 1 and 2 are Novice1 and Novice2,
-and 3-7 are Level1-Level5.
-
-=cut
-
-sub word_level {
-  
-  # Check parameter count
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  
-  # Get self
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  # Return one greater than the current file index of the underlying
-  # multifile
-  return $self->{'_mr'}->file_index + 1;
-}
-
-=item B<line_number()>
-
-Get the current line number in the current vocabulary file.  After
-construction and also immediately following a rewind, this function will
-return zero.  After an advance operation that returns true, this will
-return the line number of the record that was just read (where the first
-line is 1).  After an advance operation that returns false, this will
-return zero.
-
-The line number is the line number within the current vocabulary level
-file, as returned by word_level().
-
-=cut
-
-sub line_number {
-  
-  # Check parameter count
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  
-  # Get self
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  # Return line number from underlying multifile
-  return $self->{'_mr'}->line_number;
-}
-
-=item B<advance()>
-
-Read and parse a record from the data files.
-
-Each call to this function loads a new record.  Note that when the
-parser object is initially constructed, and also immediately following
-a rewind operation, no record is loaded, so you must call this function
-I<before> reading the first record in the dataset.
-
-The return value is 1 if a new record was loaded, 0 if we have reached
-End Of Stream (EOS) in the last vocabulary level.  Once EOS is reached,
-subsequent calls to this function will return EOS until a rewind
-operation is performed.
-
-This function will read through the vocabulary levels from easiest to
-most difficult, without any interruption between the levels.  The
-function word_level() can be used to check which level has just been
-read after a successful call to advance().
-
-Fatal errors occur if this function encounters a TOCFL record line that
-it can't successfully parse.
-
-=cut
-
-sub advance {
+# _force_advance()
+#
+# Has the same interface as the public advance() method, except that it
+# does not consult the blocklist.
+#
+# The public advance() method is a wrapper around this private instance,
+# which skips over results that are on the blocklist.
+#
+sub _force_advance {
   
   # Check parameter count
   ($#_ == 0) or die "Wrong number of parameters, stopped";
@@ -429,6 +349,148 @@ sub advance {
   };
   
   return 1;
+}
+
+=over 4
+
+=item B<rewind()>
+
+Rewind the data files back to the beginning of the whole TOCFL dataset
+and change the state of this parser to Beginning Of Stream (BOS).  This
+is also the initial state of the parser object after construction.  No
+record is currently loaded after calling this function.
+
+This rewinds all the way back to the start of the first vocabulary
+level, regardless of which vocabulary level you are currently on.
+
+=cut
+
+sub rewind {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Rewind the underlying multifile
+  $self->{'_mr'}->rewind;
+  
+  # Clear state to BOS
+  $self->{'_state'  } =  -1;
+  $self->{'_rec'    } = { };
+}
+
+=item B<word_level()>
+
+Get the TOCFL word level that we are currently examining.  This property
+is always available, even if a record is not currently loaded.  The
+line_number() is located within the file indicated by this level.
+
+The TOCFL word levels are 1-7, where 1 and 2 are Novice1 and Novice2,
+and 3-7 are Level1-Level5.
+
+=cut
+
+sub word_level {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Return one greater than the current file index of the underlying
+  # multifile
+  return $self->{'_mr'}->file_index + 1;
+}
+
+=item B<line_number()>
+
+Get the current line number in the current vocabulary file.  After
+construction and also immediately following a rewind, this function will
+return zero.  After an advance operation that returns true, this will
+return the line number of the record that was just read (where the first
+line is 1).  After an advance operation that returns false, this will
+return zero.
+
+The line number is the line number within the current vocabulary level
+file, as returned by word_level().
+
+=cut
+
+sub line_number {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Return line number from underlying multifile
+  return $self->{'_mr'}->line_number;
+}
+
+=item B<advance()>
+
+Read and parse a record from the data files.
+
+Each call to this function loads a new record.  Note that when the
+parser object is initially constructed, and also immediately following
+a rewind operation, no record is loaded, so you must call this function
+I<before> reading the first record in the dataset.
+
+The return value is 1 if a new record was loaded, 0 if we have reached
+End Of Stream (EOS) in the last vocabulary level.  Once EOS is reached,
+subsequent calls to this function will return EOS until a rewind
+operation is performed.
+
+This function will read through the vocabulary levels from easiest to
+most difficult, without any interruption between the levels.  The
+function word_level() can be used to check which level has just been
+read after a successful call to advance().
+
+Fatal errors occur if this function encounters a TOCFL record line that
+it can't successfully parse.
+
+The blocklist is consulted, and any TOCFL records for which I<all>
+headwords are on the blocklist will be silently skipped over by this
+function.
+
+=cut
+
+sub advance {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Keep calling the internal advance function until we get a record
+  # that is not blocked or we reach EOS
+  my $retval;
+  for($retval = $self->_force_advance;
+      $retval;
+      $retval = $self->_force_advance) {
+    
+    # We just loaded a new record; if the record is not on the
+    # blocklist, then leave the loop
+    unless ($self->{'_bl'}->blocked($self->{'_rec'}->{'hws'})) {
+      last;
+    }
+  }
+  
+  # Pass through the return value we arrived at
+  return $retval;
 }
 
 =item B<han_readings()>
