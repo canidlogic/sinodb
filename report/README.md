@@ -9,5 +9,6 @@ This directory contains auxiliary scripts.
 - `matchpny.pl` - Look for Pinyin mismatches between TOCFL and CC-CEDICT
 - `nogloss.pl` - Look for words lacking any gloss
 - `scanpny.pl` - Look for Pinyin with ambiguous consonants
+- `tocfl_iterate.pl` - Iterate through parsed TOCFL records
 - `ugloss.pl` - Look for glosses containing Unicode or square brackets
 - `xrefwords.pl` - Find extra words by expanding cross-references
