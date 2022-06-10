@@ -122,7 +122,8 @@ before using this module.
 
     The blocklist is consulted, and any TOCFL records for which _all_
     headwords are on the blocklist will be silently skipped over by this
-    function.
+    function.  Also, some corrections are transparently applied, as
+    described in `TOCFL.md` and `pinyin.md`.
 
 - **han\_readings()**
 
