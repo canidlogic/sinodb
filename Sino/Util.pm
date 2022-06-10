@@ -5,6 +5,7 @@ use strict;
 # @@TODO: add vowel context validity checks to tocfl_pinyin() too
 # @@TODO: update Pinyin doc with yai context for ai
 # @@TODO: update synopsis
+# @@TODO: first three elements in exmap no longer necessary?
 
 # We will use UTF-8 in string literals and some regular expressions.
 #
