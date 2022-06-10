@@ -1,6 +1,10 @@
 package Sino::TOCFL;
 use strict;
 
+# UTF-8 used for extended characters in Pinyin in string literals.
+#
+use utf8;
+
 # Sino modules
 use Sino::Blocklist;
 use Sino::Multifile;
@@ -50,6 +54,37 @@ large data files.
 
 See C<config.md> in the C<doc> directory for configuration you must do
 before using this module.
+
+=cut
+
+# =========
+# Constants
+# =========
+
+# Correction list that is used to add a few missing Pinyin abbreviated
+# forms.
+#
+# This list only applies when there is exactly one Pinyin and exactly
+# two headwords in the original record.
+#
+# The key is the Pinyin that must match in the original record.  This
+# Pinyin is already normalized.
+#
+# The value is an array of two elements.  The first element is a string
+# storing the missing Pinyin abbreviation that must be added to the
+# Pinyin for this record.  The second element is 1 if the missing
+# abbreviation should be added after the existing Pinyin element, or 0
+# if it should be added before.
+#
+my %PNY_ABBREV = (
+  'shēngyīn' => ['shēng', 1],
+  'bǎozhèng' => ['zhèng', 1],
+  'bùzhì'    => ['bù'   , 0],
+  'fǎngwèn'  => ['fǎng' , 1],
+  'gǔjī'     => ['jī'   , 1],
+  'jiànjiàn' => ['jiàn' , 1],
+  'mòmò'     => ['mò'   , 1]
+);
 
 =head1 CONSTRUCTOR
 
@@ -340,6 +375,24 @@ sub _force_advance {
     }
   }
   
+  # If we have exactly one Pinyin and exactly two headwords, check if we
+  # need to add a missing Pinyin abbreviated form and add it if
+  # necessary
+  if (($#hws == 1) and ($#pnys == 0)) {
+    if (defined $PNY_ABBREV{$pnys[0]}) {
+      # We need to add an abbreviation, so get the abbreviation
+      my $abbrev = $PNY_ABBREV{$pnys[0]}->[0];
+      
+      # Based on the flag, add this abbreviation either after or before
+      # the current Pinyin abbreviation
+      if ($PNY_ABBREV{$pnys[0]}->[1]) {
+        push @pnys, ($abbrev);
+      } else {
+        unshift @pnys, ($abbrev);
+      }
+    }
+  }
+  
   # If we got here, then update state and return true
   $self->{'_state'} = 0;
   $self->{'_rec'  } = {
@@ -461,7 +514,8 @@ it can't successfully parse.
 
 The blocklist is consulted, and any TOCFL records for which I<all>
 headwords are on the blocklist will be silently skipped over by this
-function.
+function.  Also, some corrections are transparently applied, as
+described in C<TOCFL.md> and C<pinyin.md>.
 
 =cut
 
