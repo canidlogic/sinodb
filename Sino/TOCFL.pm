@@ -110,6 +110,8 @@ sub load {
 
 =head1 INSTANCE METHODS
 
+=over 4
+
 =item B<rewind()>
 
 Rewind the data files back to the beginning of the whole TOCFL dataset
