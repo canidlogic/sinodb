@@ -31,3 +31,19 @@ The original TOCFL dataset was obtained from https://tocfl.edu.tw/index.php/exam
 (13) There's a lot of extra whitespace `U+0020` space characters so be sure to apply a lot of whitespace trimming while parsing records.
 
 (14) Some part-of-speech fields are blank.
+
+(15) See `pinyin.md` for notes about the Pinyin format used within TOCFL files.
+
+(16) In a few cases where there is exactly one Pinyin reading given but two headwords given, there is actually an abbreviated Pinyin form that should have been given but is missing.  The following table gives all of these cases:
+
+     Pinyin form given | Missing abbreviation
+    ===================+======================
+     shēngyīn          | shēng
+     bǎozhèng          | zhèng
+     bùzhì             | bù
+     fǎngwèn           | fǎng
+     gǔjī              | jī
+     jiànjiàn          | jiàn
+     mòmò              | mò
+
+The forms given in this table have already had their Pinyin normalized.  Remember, these additions only apply if there is exactly two headwords and exactly one Pinyin in the original record.  In all cases but one, the abbreviated Pinyin form should be added after the one already present.  The exception is bùzhì, where the abbreviated Pinyin form should be added _before_ the one already present.
