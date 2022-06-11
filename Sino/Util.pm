@@ -2,9 +2,6 @@ package Sino::Util;
 use parent qw(Exporter);
 use strict;
 
-# @@TODO: update Pinyin doc with yai context for ai, and yo for o
-# @@TODO: update TOCFL doc with gōnjǐ -> gōngjǐ correction
-# @@TODO: update synopsis
 # @@TODO: first three elements in exmap no longer necessary?
 
 # We will use UTF-8 in string literals and some regular expressions.
@@ -16,7 +13,6 @@ use utf8;
 
 our @EXPORT_OK = qw(
                   parse_multifield
-                  parse_blocklist
                   han_exmap
                   pinyin_count
                   han_count
@@ -39,7 +35,6 @@ Sino::Util - Utility functions for Sino.
 
   use Sino::Util qw(
         parse_multifield
-        parse_blocklist
         han_exmap
         pinyin_count
         han_count
@@ -54,14 +49,6 @@ Sino::Util - Utility functions for Sino.
   # Parse a TOCFL field with multiple values into a list
   my @vals = parse_multifield($tocfl_field);
   
-  # Get the blocklist with each traditional character in a hash
-  use SinoConfig;
-  my $blocks = parse_blocklist($config_datasets);
-  if (defined $blocks->{$han}) {
-    # $han is in the blocklist
-    ...
-  }
-  
   # Check whether a Han sequence has an exception Pinyin mapping
   my $pinyin = han_exmap($han);
   if (defined($pinyin)) {
@@ -75,9 +62,24 @@ Sino::Util - Utility functions for Sino.
   my $han_count = han_count($han);
   
   # Parse a gloss containing classifier/measure words
-  my $measures = parse_measures($gloss);
-  if (defined $measures) {
+  my $result = parse_measures($gloss);
+  if (defined $result) {
+    my $altered_gloss = $result->[0];
+    my $measures      = $result->[1];
+    if (length($altered_gloss) > 0) {
+      # Measure word is for this specific altered gloss
+      ...
+    } else {
+      # Measure word is annotation on major entry
+      ...
+    }
     for my $measure (@$measures) {
+      my $measure_trad = $measure[$i]->[0];
+      my $measure_simp = $measure[$i]->[1];
+      my $measure_pny;
+      if (scalar(@{$measure[$i]}) >= 3) {
+        $measure_pny = $measure[$i]->[2];
+      }
       ...
     }
   }
@@ -94,6 +96,9 @@ Sino::Util - Utility functions for Sino.
       ...
     } else {
       # Pronunciation is annotation on major entry
+      ...
+    }
+    for my $pinyin (@$pinyin_array) {
       ...
     }
   }
@@ -292,12 +297,6 @@ my %PNY_TONELESS = (
 # EXCEPTION:  "ue" also has a context "ue" but only when used with an
 # initial consonant "j" "q" or "x".
 #
-# NOTE: "yai" is added as an additional context for ai, as it is present
-# in the TOCFL data.
-#
-# NOTE: "yo" is added as an additional context for o, as it is present
-# in TOCFL and CC-CEDICT for use with an interjection.
-#
 # This is used to check that vowel sequences are in valid contexts.
 #
 my %PNY_AGREE = (
@@ -406,18 +405,18 @@ my %N_EXCEPTION = (
 # the han_exmap function.
 #
 my %HAN_EX = (
-  "\x{5B30}\x{5152}" => "y\x{12b}ng\x{e9}r",
-  "\x{5973}\x{5152}" => "n\x{1da}\x{e9}r",
-  "\x{5B64}\x{5152}" => "g\x{16b}\x{e9}r",
-  "\x{9019}\x{88E1}" => "zh\x{e8}l\x{1d0}",
-  "\x{9019}\x{88CF}" => "zh\x{e8}l\x{1d0}",
-  "\x{9019}\x{5152}" => "zh\x{e8}r",
-  "\x{90A3}\x{88E1}" => "n\x{e0}l\x{1d0}",
-  "\x{90A3}\x{88CF}" => "n\x{e0}l\x{1d0}",
-  "\x{90A3}\x{5152}" => "n\x{e0}r",
-  "\x{54EA}\x{88E1}" => "n\x{1ce}l\x{1d0}",
-  "\x{54EA}\x{88CF}" => "n\x{1ce}l\x{1d0}",
-  "\x{54EA}\x{5152}" => "n\x{1ce}r"
+  "\x{5B30}\x{5152}" => "yīng'ér",
+  "\x{5973}\x{5152}" => "nǚ'ér",
+  "\x{5B64}\x{5152}" => "gū'ér",
+  "\x{9019}\x{88E1}" => "zhèlǐ",
+  "\x{9019}\x{88CF}" => "zhèlǐ",
+  "\x{9019}\x{5152}" => "zhèr",
+  "\x{90A3}\x{88E1}" => "nàlǐ",
+  "\x{90A3}\x{88CF}" => "nàlǐ",
+  "\x{90A3}\x{5152}" => "nàr",
+  "\x{54EA}\x{88E1}" => "nǎlǐ",
+  "\x{54EA}\x{88CF}" => "nǎlǐ",
+  "\x{54EA}\x{5152}" => "nǎr"
 );
 
 =head1 FUNCTIONS
@@ -555,75 +554,6 @@ sub parse_multifield {
   
   # Return the target array
   return @ta;
-}
-
-=item B<parse_blocklist($config_datasets)>
-
-Given the path to the datasets directory defined by the configuration
-file in configuration variable C<config_datasets>, read the full
-blocklist file and return a hash reference where the keys are the
-headwords in the blocklist and the values are all one.
-
-=cut
-
-sub parse_blocklist {
-  # Get and check parameter
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  my $datasets_folder = shift;
-  (not ref($datasets_folder)) or die "Wrong parameter type, stopped";
-  
-  # Get the path to the full blocklist
-  my $blocklist_path = $datasets_folder . "blocklist.txt";
-  
-  # Make sure blocklist file exists
-  (-f $blocklist_path) or
-    die "Can't find blocklist '$blocklist_path', stopped";
-  
-  # Open blocklist for reading in UTF-8 and CR+LF translation mode
-  open(my $fh, "< :encoding(UTF-8) :crlf", $blocklist_path) or
-    die "Can't open blocklist file '$blocklist_path', stopped";
-  
-  # Read all records into a hash
-  my %blocklist;
-  my $lnum = 0;
-  while (not eof($fh)) {
-    
-    # Increment line number
-    $lnum++;
-    
-    # Read a line
-    my $ltext = readline($fh);
-    (defined $ltext) or die "I/O error, stopped";
-    
-    # Drop line breaks
-    chomp $ltext;
-    
-    # If this is first line, drop any UTF-8 BOM
-    if ($lnum == 1) {
-      $ltext =~ s/\A\x{feff}//;
-    }
-    
-    # Ignore blank lines
-    (not ($ltext =~ /\A\s*\z/)) or next;
-    
-    # Drop leading and trailing whitespace
-    $ltext =~ s/\A\s+//;
-    $ltext =~ s/\s+\z//;
-    
-    # Make sure we just have a sequence of one or more Letter_other
-    # category codepoints remaining
-    ($ltext =~ /\A[\p{Lo}]+\z/) or
-      die "Blocklist line $lnum: Invalid record, stopped";
-    
-    # Add to blocklist
-    $blocklist{$ltext} = 1;
-  }
-  
-  # Close blocklist file
-  close($fh);
-  
-  # Return reference to blocklist
-  return \%blocklist;
 }
 
 =item B<han_exmap(han)>
@@ -1034,7 +964,8 @@ The context is never empty.
 The third element is an array reference to a subarray storing the Pinyin
 strings for the alternate pronunciation.  The Pinyin will have already
 been normalized by running it through cedict_pinyin().  There will be at
-least one Pinyin string in the array.
+least one Pinyin string in the array.  If the Pinyin in the original
+gloss could not be normalized, this function will return C<undef>.
 
 The fourth and final element is a string specifying a condition for when
 the alternate pronunciation is used.  It may be empty if there is no
