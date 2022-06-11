@@ -2212,6 +2212,9 @@ slashes before passing it through this function.
 The given string must be a Unicode string.  Do not pass a binary string
 that is encoded in UTF-8.
 
+The result is verified as valid Pinyin with C<pinyin_split()> before
+returning it from this function.
+
 =cut
 
 sub tocfl_pinyin {
@@ -2676,6 +2679,9 @@ returned by this function.
 
 The given string must be a Unicode string.  Do not pass a binary string
 that is encoded in UTF-8.
+
+The result is verified as valid Pinyin with C<pinyin_split()> before
+returning it from this function.
 
 =cut
 
