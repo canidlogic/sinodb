@@ -6,7 +6,6 @@ Sino::Util - Utility functions for Sino.
 
     use Sino::Util qw(
           parse_multifield
-          parse_blocklist
           han_exmap
           pinyin_count
           han_count
@@ -21,14 +20,6 @@ Sino::Util - Utility functions for Sino.
     # Parse a TOCFL field with multiple values into a list
     my @vals = parse_multifield($tocfl_field);
     
-    # Get the blocklist with each traditional character in a hash
-    use SinoConfig;
-    my $blocks = parse_blocklist($config_datasets);
-    if (defined $blocks->{$han}) {
-      # $han is in the blocklist
-      ...
-    }
-    
     # Check whether a Han sequence has an exception Pinyin mapping
     my $pinyin = han_exmap($han);
     if (defined($pinyin)) {
@@ -42,9 +33,24 @@ Sino::Util - Utility functions for Sino.
     my $han_count = han_count($han);
     
     # Parse a gloss containing classifier/measure words
-    my $measures = parse_measures($gloss);
-    if (defined $measures) {
+    my $result = parse_measures($gloss);
+    if (defined $result) {
+      my $altered_gloss = $result->[0];
+      my $measures      = $result->[1];
+      if (length($altered_gloss) > 0) {
+        # Measure word is for this specific altered gloss
+        ...
+      } else {
+        # Measure word is annotation on major entry
+        ...
+      }
       for my $measure (@$measures) {
+        my $measure_trad = $measure[$i]->[0];
+        my $measure_simp = $measure[$i]->[1];
+        my $measure_pny;
+        if (scalar(@{$measure[$i]}) >= 3) {
+          $measure_pny = $measure[$i]->[2];
+        }
         ...
       }
     }
@@ -61,6 +67,9 @@ Sino::Util - Utility functions for Sino.
         ...
       } else {
         # Pronunciation is annotation on major entry
+        ...
+      }
+      for my $pinyin (@$pinyin_array) {
         ...
       }
     }
@@ -155,13 +164,6 @@ individual functions for further information.
     **Warning:** This function will not handle Bopomofo parentheticals
     correctly.  You must drop these from the TOCFL input before running it
     through this function.
-
-- **parse\_blocklist($config\_datasets)**
-
-    Given the path to the datasets directory defined by the configuration
-    file in configuration variable `config_datasets`, read the full
-    blocklist file and return a hash reference where the keys are the
-    headwords in the blocklist and the values are all one.
 
 - **han\_exmap(han)**
 
@@ -269,7 +271,8 @@ individual functions for further information.
     The third element is an array reference to a subarray storing the Pinyin
     strings for the alternate pronunciation.  The Pinyin will have already
     been normalized by running it through cedict\_pinyin().  There will be at
-    least one Pinyin string in the array.
+    least one Pinyin string in the array.  If the Pinyin in the original
+    gloss could not be normalized, this function will return `undef`.
 
     The fourth and final element is a string specifying a condition for when
     the alternate pronunciation is used.  It may be empty if there is no
