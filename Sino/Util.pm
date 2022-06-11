@@ -2,8 +2,8 @@ package Sino::Util;
 use parent qw(Exporter);
 use strict;
 
-# @@TODO: add vowel context validity checks to tocfl_pinyin() too
-# @@TODO: update Pinyin doc with yai context for ai
+# @@TODO: update Pinyin doc with yai context for ai, and yo for o
+# @@TODO: update TOCFL doc with gōnjǐ -> gōngjǐ correction
 # @@TODO: update synopsis
 # @@TODO: first three elements in exmap no longer necessary?
 
@@ -24,6 +24,7 @@ our @EXPORT_OK = qw(
                   extract_pronunciation
                   extract_xref
                   parse_cites
+                  pinyin_split
                   tocfl_pinyin
                   cedict_pinyin);
 
@@ -46,6 +47,7 @@ Sino::Util - Utility functions for Sino.
         extract_pronunciation
         extract_xref
         parse_cites
+        pinyin_split
         tocfl_pinyin
         cedict_pinyin);
   
@@ -138,6 +140,9 @@ Sino::Util - Utility functions for Sino.
       ...
     }
   }
+  
+  # Parse standard Pinyin into a sequence of syllables
+  my @syl = pinyin_split($pinyin);
   
   # Convert TOCFL-style Pinyin to standard Pinyin
   my $standard_pinyin = tocfl_pinyin($tocfl_pinyin);
@@ -243,6 +248,37 @@ my %PNY_TONAL = (
 );
 
 # Hash representing the mapping of recognized Pinyin sequences of vowels
+# with the acute accent diacritic to the same sequence of vowels without
+# tonal diacritics.
+#
+# This is the inverse mapping from %PNY_TONAL.
+#
+my %PNY_TONELESS = (
+  'á'   => 'a',
+  'é'   => 'e',
+  'í'   => 'i',
+  'ó'   => 'o',
+  'ú'   => 'u',
+  'ǘ'   => 'ü',
+  'ái'  => 'ai',
+  'áo'  => 'ao',
+  'éi'  => 'ei',
+  'iá'  => 'ia',
+  'iáo' => 'iao',
+  'ié'  => 'ie',
+  'ió'  => 'io',
+  'iú'  => 'iu',
+  'óu'  => 'ou',
+  'uá'  => 'ua',
+  'üá'  => 'üa',
+  'uái' => 'uai',
+  'ué'  => 'ue',
+  'üé'  => 'üe',
+  'uí'  => 'ui',
+  'uó'  => 'uo'
+);
+
+# Hash representing the mapping of recognized Pinyin sequences of vowels
 # without tonal diacritics to arrays storing all the contexts in which
 # that particular vowel sequence may be used.
 #
@@ -259,13 +295,16 @@ my %PNY_TONAL = (
 # NOTE: "yai" is added as an additional context for ai, as it is present
 # in the TOCFL data.
 #
+# NOTE: "yo" is added as an additional context for o, as it is present
+# in TOCFL and CC-CEDICT for use with an interjection.
+#
 # This is used to check that vowel sequences are in valid contexts.
 #
 my %PNY_AGREE = (
   'a'   => ['a', 'ya', 'wa', 'an', 'yan', 'wan', 'ang', 'yang', 'wang'],
   'e'   => ['e', 'ye', 'en', 'wen', 'eng', 'weng', 'er'],
   'i'   => ['i', 'yi', 'yin', 'in', 'ying', 'ing'],
-  'o'   => ['o', 'wo', 'ong', 'yong'],
+  'o'   => ['o', 'wo', 'ong', 'yong', 'yo'],
   'u'   => ['u', 'wu', 'yu', 'un', 'yun'],
   'ü'   => ['ü', 'ün'],
   'ai'  => ['ai', 'wai', 'yai'],
@@ -289,7 +328,7 @@ my %PNY_AGREE = (
 # Hash that maps erroneous TOCFL Pinyin to corrected versions.
 #
 # This handles a few typos where the tonal diacritic was placed on the
-# wrong vowel.
+# wrong vowel, and one case of a missing letter.
 #
 # To query this hash, you must have already "cleaned up" the TOCFL
 # Pinyin by converting any uppercase initial letter to lowercase,
@@ -299,7 +338,8 @@ my %PNY_AGREE = (
 my %PNY_TYPO = (
   'piàolìang'  => 'piàoliàng',
   'bǐfāngshūo' => 'bǐfāngshuō',
-  'shoúxī'     => 'shóuxī'
+  'shoúxī'     => 'shóuxī',
+  'gōnjǐ'      => 'gōngjǐ'
 );
 
 # Hash representing a set of exceptional TOCFL Pinyin, for use by the
@@ -1949,6 +1989,216 @@ sub parse_cites {
   return @results;
 }
 
+=item B<pinyin_split(str)>
+
+Given a string containing Pinyin in standard format, return an array in
+list context containing each of the syllables.
+
+Before you can use TOCFL or CC-CEDICT Pinyin with this function, you
+must normalize it with C<tocfl_pinyin()> or C<cedict_pinyin()>.
+
+Fatal errors occur if the Pinyin is not in the proper format.  You can
+therefore use this function to verify that Pinyin is valid.
+
+Erhua inflections are returned as a separate "syllable" that contains
+just C<r> by itself.  However, non-erhua use of C<r> as a final in the
+syllable C<er> is properly returned as a syllable C<er>.
+
+Apostrophes are I<not> included in the returned syllables.
+
+=cut
+
+sub pinyin_split {
+  # Get and check parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  # Pinyin may not be empty
+  (length($str) > 0) or die "Empty Pinyin, stopped";
+  
+  # Make sure no capital ASCII letters are present
+  (not ($str =~ /[A-Z]/)) or die "Capital letters in Pinyin, stopped";
+  
+  # Convert consonant digraphs ch zh sh ng to C Z S G; however, only
+  # convert ng to G when the sequence is last in the word or it occurs
+  # immediately before an initial consonant
+  $str =~ s/ch/C/g;
+  $str =~ s/zh/Z/g;
+  $str =~ s/sh/S/g;
+  
+  $str =~ s/ng\z/G/g;
+  $str =~ s/ng(['pbtdkgmnczCZqjfsSxhlrwy])/G$1/g;
+  
+  # Define results array
+  my @results;
+  
+  # Keep reading syllables until we've exhausted the string
+  my $first_syl = 1;
+  while (length($str) > 0) {
+    
+    # First of all, if this is the very first syllable, make sure we
+    # don't start with an apostrophe, and then add an apostrophe if we
+    # start with a vowel, so we can handle all syllables the same way
+    if ($first_syl) {
+      # Clear first_syl flag
+      $first_syl = 0;
+      
+      # Make sure no apostrophe at start
+      (not ($str =~ /\A'/)) or
+        die "First syllable may not start with apostrophe, stopped";
+      
+      # Get the first character and decompose it in Unicode
+      my $first_char = substr($str, 0, 1);
+      $first_char = NFD($first_char);
+      
+      # If decomposed form of first character starts with a vowel, then
+      # prefix an apostrophe to the string so we can handle the first
+      # syllable the same as the others
+      if ($first_char =~ /\A[aeiou]/) {
+        $str = "'$str";
+      }
+    }
+    
+    # Handle the special case of an er syllable
+    if ($str =~ /\A'[ēéěèe]r/) {
+      # Transfer this syllable to results (without the apostrophe), then
+      # loop back
+      my $s = substr($str, 1, 2);
+      push @results, ($s);
+      $str = substr($str, 3);
+      next;
+    }
+    
+    # Parse a CV proto-syllable as the initial consonant (including w
+    # and y) or apostrophe, followed by a sequence of one or more
+    # non-consonants
+    
+    ($str =~ /\A
+              (['pbtdkgmnczCZqjfsSxhlrwy])
+              ([^CSZGb-df-hj-np-tv-z']+)
+              (.*)
+            \z/x) or die "Invalid syllable, stopped";
+    
+    my $initial = $1;
+    my $medial  = $2;
+    my $rstr    = $3;
+    
+    # If the remaining string starts with G, or it starts with n that
+    # is followed either by end of string or an initial consonant, then
+    # transfer this leading character to the final consonant position
+    # within the current syllable; else, leave the final consonant
+    # position empty
+    my $final = '';
+    if ($rstr =~ /\AG/) {
+      $final = 'G';
+      $rstr = substr($rstr, 1);
+      
+    } elsif (($rstr =~ /\An\z/) or
+              ($rstr =~ /\An['pbtdkgmnczCZqjfsSxhlrwy]/)) {
+      $final = 'n';
+      $rstr = substr($rstr, 1);
+    }
+    
+    # Update string with everything after the syllable we decoded
+    $str = $rstr;
+    
+    # Get the medial without any tonal diacritic
+    my $medial_toneless;
+    if ($medial =~ /\A[aeiouü]+\z/) {
+      # No tonal diacritics present, so just copy the medial
+      $medial_toneless = $medial;
+      
+    } else {
+      # Tonal diacritics may be present, so begin by making a copy
+      $medial_toneless = $medial;
+      
+      # Decompose to NFD
+      $medial_toneless = NFD($medial_toneless);
+      
+      # Replace all tonal diacritics with acute accent
+      $medial_toneless =~ s/\x{304}/\x{301}/g;
+      $medial_toneless =~ s/\x{30c}/\x{301}/g;
+      $medial_toneless =~ s/\x{300}/\x{301}/g;
+      
+      # Recompose to NFC
+      $medial_toneless = NFC($medial_toneless);
+      
+      # Make sure this is a recognized tonal sequence
+      (defined $PNY_TONELESS{$medial_toneless}) or
+        die "Invalid Pinyin tonal medial, stopped";
+      
+      # Now get the toneless version of the medial
+      $medial_toneless = $PNY_TONELESS{$medial_toneless};
+    }
+    
+    # Make sure that toneless medial is recognized
+    (defined $PNY_TONAL{$medial_toneless}) or
+      die "Invalid Pinyin medial, stopped";
+    
+    # Get the vowel context, which is toneless medial, with the final
+    # consonant suffixed (if present), and the initial consonant
+    # prefixed if it is w or y
+    my $vctx = $medial_toneless . $final;
+    if ($initial =~ /\A[wy]\z/) {
+      $vctx = $initial . $vctx;
+    }
+    
+    # Convert G in vowel context back to ng
+    $vctx =~ s/G/ng/g;
+    
+    # Check whether the vowel context is in the recognized set for this
+    # medial
+    my $context_ok = 0;
+    
+    (defined $PNY_AGREE{$medial_toneless}) or die "Unexpected";
+    for my $cx (@{$PNY_AGREE{$medial_toneless}}) {
+      if ($cx eq $vctx) {
+        $context_ok = 1;
+        last;
+      }
+    }
+    
+    # If vowel context wasn't found, check for the exceptional case of
+    # a context "ue" when initial is "j" "q" or "x"
+    unless ($context_ok) {
+      if (($vctx eq 'ue') and ($initial =~ /\A[jqx]\z/)) {
+        $context_ok = 1;
+      }
+    }
+    
+    # At this point, we can verify the vowel context is OK
+    ($context_ok) or die "Invalid Pinyin vowel context $vctx, stopped";
+    
+    # Assemble the syllable (without any initial apostrophe), convert
+    # digraph notation back to standard, and add it to the results
+    my $assembly = $medial . $final;
+    if ($initial ne "'") {
+      $assembly = $initial . $assembly;
+    }
+    
+    $assembly =~ s/C/ch/g;
+    $assembly =~ s/Z/zh/g;
+    $assembly =~ s/S/sh/g;
+    $assembly =~ s/G/ng/g;
+    
+    push @results, ($assembly);
+    
+    # If the updated string starts with an r that is followed by end of
+    # string OR an r followed by an initial consonant, then transfer
+    # this r by itself as a syllable to the results, as an erhua
+    # inflection
+    if (($str =~ /\Ar\z/) or 
+          ($str =~ /\Ar['pbtdkgmnczCZqjfsSxhlrwy]/)) {
+      push @results, ('r');
+      $str = substr($str, 1);
+    }
+  }
+  
+  # If we got here, return the results array
+  return @results;
+}
+
 =item B<tocfl_pinyin(str)>
 
 Given a string containing Pinyin in TOCFL format, normalize it to
@@ -2395,7 +2645,12 @@ sub tocfl_pinyin {
   }
   
   # Normalized result is all the syllables joined together
-  return join '', @syls;
+  my $norm_result = join '', @syls;
+  
+  # Check that normalized result is valid by testing a pinyin_split
+  # operation and then return it
+  pinyin_split($norm_result);
+  return $norm_result;
 }
 
 =item B<cedict_pinyin(str)>
@@ -2597,8 +2852,13 @@ sub cedict_pinyin {
     push @results, ($initial . $vowel . $final . $erhua);
   }
   
-  # Return assembled result
-  return join '', @results;
+  # Normalized result is all the syllables joined together
+  my $norm_result = join '', @results;
+  
+  # Check that normalized result is valid by testing a pinyin_split
+  # operation and then return assembled result
+  pinyin_split($norm_result);
+  return $norm_result;
 }
 
 =back
