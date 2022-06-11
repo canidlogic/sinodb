@@ -61,11 +61,11 @@ The following chart shows all the possible vowels in Pinyin open syllables.  Ope
     +-------+-----------+-----------+-----------+-------+
     |   a   |  ya | ia  |  wa | ua  | / / / / / |   A   |
     +-------+-----------+-----------+-----------+-------+   -
-    |   o   | / / / / / |  wo | uo  | / / / / / |   O   |
+    |   o   |  yo | / / |  wo | uo  | / / / / / |   O   |
     +-------+-----------+-----------+-----------+-------+
     |   e   |  ye | ie  | / / / / / | yue | üe  |   E   |
     +=======+===========+===========+===========+=======+========
-    |   ai  | / / / / / | wai | uai | / / / / / |   A   |
+    |   ai  | yai | / / | wai | uai | / / / / / |   A   |
     +-------+-----------+-----------+-----------+-------+   I
     |   ei  | / / / / / | wei | ui  | / / / / / |   E   |
     +=======+===========+===========+===========+=======+========
@@ -178,13 +178,14 @@ The TOCFL Pinyin format is close to standard Pinyin, but there are a few inconsi
 
 (5) Lowercase letters are always used in TOCFL data files, except in a handful of cases involving religious terms, where the first letter is capitalized.
 
-(6) There are three typos in the TOCFL data files where the tonal diacritic was placed on the incorrect vowel.  These three typos are:
+(6) There are three typos in the TOCFL data files where the tonal diacritic was placed on the incorrect vowel, and one typo where `n` was used instead of `ng`.  These four typos are:
 
         Typo    | Corrected
     ============+============
      piàolìang  | piàoliàng
      bǐfāngshūo | bǐfāngshuō
      shoúxī     | shóuxī
+     gōnjǐ      | gōngjǐ
 
 (7) The apostrophe is never used in the TOCFL data files.  Unfortunately, this is not a trivial thing to fix.  The missing apostrophe in a number of cases makes the syllable boundary unclear, resulting in various ambiguities that need to be resolved in order to convert the Pinyin to a more standard form.  The following subsections detail how to add in the missing apostrophes.
 
