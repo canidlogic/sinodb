@@ -14,6 +14,7 @@ Sino::Util - Utility functions for Sino.
           extract_pronunciation
           extract_xref
           parse_cites
+          pinyin_split
           tocfl_pinyin
           cedict_pinyin);
     
@@ -106,6 +107,9 @@ Sino::Util - Utility functions for Sino.
         ...
       }
     }
+    
+    # Parse standard Pinyin into a sequence of syllables
+    my @syl = pinyin_split($pinyin);
     
     # Convert TOCFL-style Pinyin to standard Pinyin
     my $standard_pinyin = tocfl_pinyin($tocfl_pinyin);
@@ -338,6 +342,23 @@ individual functions for further information.
     string.)  If the third element is present, it is a Pinyin reading,
     normalized according to cedict\_pinyin().
 
+- **pinyin\_split(str)**
+
+    Given a string containing Pinyin in standard format, return an array in
+    list context containing each of the syllables.
+
+    Before you can use TOCFL or CC-CEDICT Pinyin with this function, you
+    must normalize it with `tocfl_pinyin()` or `cedict_pinyin()`.
+
+    Fatal errors occur if the Pinyin is not in the proper format.  You can
+    therefore use this function to verify that Pinyin is valid.
+
+    Erhua inflections are returned as a separate "syllable" that contains
+    just `r` by itself.  However, non-erhua use of `r` as a final in the
+    syllable `er` is properly returned as a syllable `er`.
+
+    Apostrophes are _not_ included in the returned syllables.
+
 - **tocfl\_pinyin(str)**
 
     Given a string containing Pinyin in TOCFL format, normalize it to
@@ -350,6 +371,9 @@ individual functions for further information.
 
     The given string must be a Unicode string.  Do not pass a binary string
     that is encoded in UTF-8.
+
+    The result is verified as valid Pinyin with `pinyin_split()` before
+    returning it from this function.
 
 - **cedict\_pinyin(str)**
 
@@ -374,6 +398,9 @@ individual functions for further information.
 
     The given string must be a Unicode string.  Do not pass a binary string
     that is encoded in UTF-8.
+
+    The result is verified as valid Pinyin with `pinyin_split()` before
+    returning it from this function.
 
 # AUTHOR
 
