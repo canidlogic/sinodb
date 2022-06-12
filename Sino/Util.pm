@@ -11,9 +11,6 @@ use utf8;
 
 our @EXPORT_OK = qw(
                   parse_multifield
-                  han_exmap
-                  pinyin_count
-                  han_count
                   parse_measures
                   extract_pronunciation
                   extract_xref
