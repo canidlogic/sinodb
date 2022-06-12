@@ -47,3 +47,29 @@ The original TOCFL dataset was obtained from https://tocfl.edu.tw/index.php/exam
      mòmò              | mò
 
 The forms given in this table have already had their Pinyin normalized.  Remember, these additions only apply if there is exactly two headwords and exactly one Pinyin in the original record.  In all cases but one, the abbreviated Pinyin form should be added after the one already present.  The exception is bùzhì, where the abbreviated Pinyin form should be added _before_ the one already present.
+
+(17) The Pinyin in the records can be matched with headwords according to the following algorithm.  First, define the _count_ of a Pinyin reading as the number of syllables, with erhua R counted as its own syllable (but non-erhua final R in an `er` syllable is _not_ separate); also, define the _count_ of a headword as the number of Han characters within the headword.  Second, expand variation notation involving slashes and parentheses out into separate values, such that no parentheses or slashes remain in any of the Pinyin or Han readings.
+
+Third, handle the _first exceptional case._  If there are exactly the same number of Pinyin and Han readings, and each Pinyin reading has the same count as the corresponding Han reading when matched in the order given, then the Pinyin and Han readings should be matched to one another in the order they appear in both arrays.
+
+Fourth, handle the _second exceptional case._  The second exceptional case uses a lookup table for three records which would otherwise have ambiguous mappings.  In the following table, the three exceptional records are given, with each having three headwords, and the matching Pinyin for each headword is shown:
+
+     Exception | Headword | Pinyin
+    ===========+==========+========
+               |   這裡   | zhèlǐ
+         1     |   這裏   | zhèlǐ
+               |   這兒   | zhèr
+    -----------+----------+--------
+               |   那裡   | nàlǐ
+         2     |   那裏   | nàlǐ
+               |   那兒   | nàr
+    -----------+----------+--------
+               |   哪裡   | nǎlǐ
+         3     |   哪裏   | nǎlǐ
+               |   哪兒   | nǎr
+
+To detect one of these exceptional cases, check for a record that has three headwords that exactly match one of the three exceptions given in the above table.  The two Pinyin in the table should match the Pinyin already given for the record.  (Since the count of all headwords and Pinyin in the table is two, the matching would be ambiguous without this exceptional case for these three records.)
+
+Fifth is the general case, which is used when neither of the two exceptional cases apply.  Match headwords and Pinyin by connecting headwords to Pinyin whenever their counts are the same.  If there is only one headword with a certain count, then multiple Pinyin can have that count, and all of them will be mapped to that headword.  However, if more than one headword has a certain count, then only one Pinyin can have that count, and that Pinyin will be assigned to each of the headwords with that count.  If there exists any count value for which there are multiple headwords _and_ multiple Pinyin in the same record, then matching is ambiguous and the matching algorithm fails.  At the end of the general matching process, each headword and each Pinyin should have been used in at least one match, or the matching algorithm fails.
+
+In the TOCFL dataset version assumed for Sino, this matching algorithm should succeed for all records.
