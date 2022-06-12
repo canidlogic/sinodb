@@ -49,10 +49,9 @@ my $rec_count = 0;
 
 while ($tvl->advance) {
   # Get fields of this record
-  my @han_readings = $tvl->han_readings;
-  my @pinyins      = $tvl->pinyin_readings;
   my @word_classes = $tvl->word_classes;
   my $word_level   = $tvl->word_level;
+  my @entries      = $tvl->entries;
   my $line_number  = $tvl->line_number;
   
   # Increase record count
@@ -73,15 +72,14 @@ while ($tvl->advance) {
   }
   print "\n";
   
-  for my $han (@han_readings) {
-    print "  $han";
+  for my $entry (@entries) {
+    my $han_reading = $entry->[0];
+    print "  $han_reading :";
+    for my $pinyin (@{$entry->[1]}) {
+      print "  $pinyin";
+    }
+    print "\n";
   }
-  print "\n";
-  
-  for my $pny (@pinyins) {
-    print "  $pny";
-  }
-  print "\n";
 }
 
 =head1 AUTHOR
