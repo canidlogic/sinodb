@@ -8,7 +8,7 @@ use utf8;
 # Sino modules
 use Sino::Blocklist;
 use Sino::Multifile;
-use Sino::Util qw(parse_multifield tocfl_pinyin);
+use Sino::Util qw(parse_multifield match_pinyin tocfl_pinyin);
 
 =head1 NAME
 
@@ -34,12 +34,17 @@ Sino::TOCFL - Parse through the TOCFL data files.
   # Read each TOCFL record
   while ($tvl->advance) {
     # Get record fields
-    my @han_readings = $tvl->han_readings;
-    my @pinyins      = $tvl->pinyin_readings;
     my @word_classes = $tvl->word_classes;
     my $word_level   = $tvl->word_level;
+    my @entries      = $tvl->entries;
     
-    ...
+    # Iterate through all entries for this record
+    for my $entry (@entries) {
+      my $han_reading = $entry->[0];
+      for my $pinyin (@{$entry->[1]}) {
+        ...
+      }
+    }
   }
 
 =head1 DESCRIPTION
@@ -393,12 +398,21 @@ sub _force_advance {
     }
   }
   
+  # Use intelligent matching to figure out which Pinyin goes with which
+  # headwords
+  my @matches;
+  eval {
+    @matches = match_pinyin(\@hws, \@pnys);
+  };
+  if ($@) {
+    die "File $dlevel line $dline: $@";
+  }
+  
   # If we got here, then update state and return true
   $self->{'_state'} = 0;
   $self->{'_rec'  } = {
-    hws  => \@hws,
-    pnys => \@pnys,
-    wcs  => \@wcs
+    matches => \@matches,
+    wcs     => \@wcs
   };
   
   return 1;
@@ -536,74 +550,20 @@ sub advance {
       $retval;
       $retval = $self->_force_advance) {
     
-    # We just loaded a new record; if the record is not on the
-    # blocklist, then leave the loop
-    unless ($self->{'_bl'}->blocked($self->{'_rec'}->{'hws'})) {
+    # We just loaded a new record; get a list of all the headwords
+    my @hws;
+    for my $match (@{$self->{'_rec'}->{'matches'}}) {
+      push @hws, ($match->[0]);
+    }
+    
+    # If the record is not on the blocklist, then leave the loop
+    unless ($self->{'_bl'}->blocked(\@hws)) {
       last;
     }
   }
   
   # Pass through the return value we arrived at
   return $retval;
-}
-
-=item B<han_readings()>
-
-Return all the headwords for this record as an array in list context.
-
-This may only be used after a successful call to the advance function.
-A fatal error occurs if this function is called in Beginning Of Stream
-(BOS) or End Of Stream (EOS) state.
-
-=cut
-
-sub han_readings {
-  
-  # Check parameter count
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  
-  # Get self
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  # Check state
-  ($self->{'_state'} == 0) or die "Invalid state, stopped";
-  
-  # Return desired information
-  return @{$self->{'_rec'}->{'hws'}};
-}
-
-=item B<pinyin_readings()>
-
-Return all the Pinyin readings for this record as an array in list
-context.
-
-Pinyin readings returned by this function have already been corrected
-and normalized to standard Pinyin with the C<tocfl_pinyin> function of
-C<Sino::Util>.
-
-This may only be used after a successful call to the advance function.
-A fatal error occurs if this function is called in Beginning Of Stream
-(BOS) or End Of Stream (EOS) state.
-
-=cut
-
-sub pinyin_readings {
-  
-  # Check parameter count
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  
-  # Get self
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  # Check state
-  ($self->{'_state'} == 0) or die "Invalid state, stopped";
-  
-  # Return desired information
-  return @{$self->{'_rec'}->{'pnys'}};
 }
 
 =item B<word_classes()>
@@ -631,6 +591,54 @@ sub word_classes {
   
   # Return desired information
   return @{$self->{'_rec'}->{'wcs'}};
+}
+
+=item B<entries()>
+
+Return all the entries for this record as an array in list context.
+
+This may only be used after a successful call to the advance function.
+A fatal error occurs if this function is called in Beginning Of Stream
+(BOS) or End Of Stream (EOS) state.
+
+There is at least one entry for each word.  Each entry is an array
+reference to an array of two elements.  The first element in the array
+is a string containing the headword for the entry.  The second element
+in the array is a subarray reference to a non-empty subarray storing all
+the Pinyin readings for this headword.  Pinyin has already been
+normalized into standard form with the C<tocfl_pinyin()> function of
+C<Sino::Util>.
+
+Everything returned from this function is a copy, so that changing
+anything that was returned will not affect the internal state of the
+parser.  This also means that you shouldn't call this function
+excessively, since each call makes a new copy of everything.
+
+=cut
+
+sub entries {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Check state
+  ($self->{'_state'} == 0) or die "Invalid state, stopped";
+  
+  # Make a copy of the matches array
+  my @results;
+  for my $match (@{$self->{'_rec'}->{'matches'}}) {
+    my $head_word = $match->[0];
+    my @pny_array = map { $_ } @{$match->[1]};
+    push @results, ([$head_word, \@pny_array]);
+  }
+  
+  # Return copy of the matches array
+  return @results;
 }
 
 =back
