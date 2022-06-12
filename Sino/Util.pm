@@ -421,7 +421,9 @@ If there is only one value, the array will be length one.  The returned
 array will never be empty.
 
 The first alternative value notation that is decoded is the ASCII
-forward slash, which separates alternatives.
+forward slash, which separates alternatives.  This function will also
+recognize U+FF0F as a variant forward slash and treat it as if it were
+a regular ASCII slash.
 
 The second alternative value notation that is decoded is parentheses,
 which include an optional sequence.  Either standard ASCII parentheses
@@ -447,6 +449,9 @@ sub parse_multifield {
   ($#_ == 0) or die "Wrong number of parameters, stopped";
   my $str = shift;
   (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  # Normalize variant forward slash into ASCII forward slash
+  $str =~ s/\x{ff0f}/\//g;
   
   # Normalize variant parentheses into ASCII parentheses
   $str =~ s/\x{ff08}/\(/g;
