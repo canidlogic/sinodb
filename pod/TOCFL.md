@@ -22,12 +22,17 @@ Sino::TOCFL - Parse through the TOCFL data files.
     # Read each TOCFL record
     while ($tvl->advance) {
       # Get record fields
-      my @han_readings = $tvl->han_readings;
-      my @pinyins      = $tvl->pinyin_readings;
       my @word_classes = $tvl->word_classes;
       my $word_level   = $tvl->word_level;
+      my @entries      = $tvl->entries;
       
-      ...
+      # Iterate through all entries for this record
+      for my $entry (@entries) {
+        my $han_reading = $entry->[0];
+        for my $pinyin (@{$entry->[1]}) {
+          ...
+        }
+      }
     }
 
 # DESCRIPTION
@@ -125,27 +130,6 @@ before using this module.
     function.  Also, some corrections are transparently applied, as
     described in `TOCFL.md` and `pinyin.md`.
 
-- **han\_readings()**
-
-    Return all the headwords for this record as an array in list context.
-
-    This may only be used after a successful call to the advance function.
-    A fatal error occurs if this function is called in Beginning Of Stream
-    (BOS) or End Of Stream (EOS) state.
-
-- **pinyin\_readings()**
-
-    Return all the Pinyin readings for this record as an array in list
-    context.
-
-    Pinyin readings returned by this function have already been corrected
-    and normalized to standard Pinyin with the `tocfl_pinyin` function of
-    `Sino::Util`.
-
-    This may only be used after a successful call to the advance function.
-    A fatal error occurs if this function is called in Beginning Of Stream
-    (BOS) or End Of Stream (EOS) state.
-
 - **word\_classes()**
 
     Return all the word classes for this record as an array in list context.
@@ -153,6 +137,27 @@ before using this module.
     This may only be used after a successful call to the advance function.
     A fatal error occurs if this function is called in Beginning Of Stream
     (BOS) or End Of Stream (EOS) state.
+
+- **entries()**
+
+    Return all the entries for this record as an array in list context.
+
+    This may only be used after a successful call to the advance function.
+    A fatal error occurs if this function is called in Beginning Of Stream
+    (BOS) or End Of Stream (EOS) state.
+
+    There is at least one entry for each word.  Each entry is an array
+    reference to an array of two elements.  The first element in the array
+    is a string containing the headword for the entry.  The second element
+    in the array is a subarray reference to a non-empty subarray storing all
+    the Pinyin readings for this headword.  Pinyin has already been
+    normalized into standard form with the `tocfl_pinyin()` function of
+    `Sino::Util`.
+
+    Everything returned from this function is a copy, so that changing
+    anything that was returned will not affect the internal state of the
+    parser.  This also means that you shouldn't call this function
+    excessively, since each call makes a new copy of everything.
 
 # AUTHOR
 
