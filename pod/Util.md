@@ -6,31 +6,17 @@ Sino::Util - Utility functions for Sino.
 
     use Sino::Util qw(
           parse_multifield
-          han_exmap
-          pinyin_count
-          han_count
           parse_measures
           extract_pronunciation
           extract_xref
           parse_cites
+          match_pinyin
           pinyin_split
           tocfl_pinyin
           cedict_pinyin);
     
     # Parse a TOCFL field with multiple values into a list
     my @vals = parse_multifield($tocfl_field);
-    
-    # Check whether a Han sequence has an exception Pinyin mapping
-    my $pinyin = han_exmap($han);
-    if (defined($pinyin)) {
-      ...
-    }
-    
-    # Count the number of Pinyin syllables
-    my $syl_count = pinyin_count($pny);
-    
-    # Count the adjusted number of Han syllables
-    my $han_count = han_count($han);
     
     # Parse a gloss containing classifier/measure words
     my $result = parse_measures($gloss);
@@ -117,6 +103,15 @@ Sino::Util - Utility functions for Sino.
       }
     }
     
+    # Match headwords to Pinyin within TOCFL data
+    my @matches = match_pinyin(\@hws, \@pnys);
+    for my $match (@matches) {
+      my $head_word = $match->[0];
+      for my $pinyin (@{$match->[1]}) {
+        ...
+      }
+    }
+    
     # Parse standard Pinyin into a sequence of syllables
     my @syl = pinyin_split($pinyin);
     
@@ -164,55 +159,6 @@ individual functions for further information.
     **Warning:** This function will not handle Bopomofo parentheticals
     correctly.  You must drop these from the TOCFL input before running it
     through this function.
-
-- **han\_exmap(han)**
-
-    Given a string containing a Han rendering, return the Pinyin reading of
-    this Han character if this is an exceptional mapping, or else return
-    undef if there is no known exception mapping for this Han rendering.
-
-    In a couple of cases in the TOCFL data, it is difficult to decide which
-    Han reading maps to which Pinyin reading using regular rules.  It is
-    easier in this cases to use a lookup table for exceptions, which this
-    function provides.
-
-    If _all_ the Han readings of a word have exceptional mappings as
-    returned by this function _and_ all the exceptional Pinyin returned by
-    this function already exists as Pinyin readings for this word, then use
-    the mappings returned by this function.  Otherwise, use regular rules
-    for resolving how Han and Pinyin are mapped in the TOCFL dataset.
-
-- **pinyin\_count(str)**
-
-    Given a string containing TOCFL-formatted Pinyin, return the number of
-    syllables within the string.
-
-    The TOCFL data files contain some inconsistencies in the Pinyin
-    renderings that this function expects were already cleaned up during by
-    the `import_tocfl.pl` script.  No parentheses are allowed in the given
-    Pinyin, as those should have been expanded into two different
-    renderings already.  The ZWSP that appears exceptionally in some records
-    should have already been dropped.  Breve diacritics should have already
-    been changed into the proper caron diacritics.  The variant lowercase a
-    codepoint should have already been changed into ASCII lowercase a.
-    Fatal errors occur if you run this function on Pinyin strings that
-    haven't been properly cleaned up.
-
-    This function should properly handle cases where multiple sequences of
-    vowels are directly adjacent.  This function will also count a final "r"
-    at the end of the Pinyin as an additional syllable, since this is
-    normally written with a separate character.
-
-- **han\_count(str)**
-
-    Given a string of a Han rendering, return the adjusted count of
-    characters.  This is not always the same as the length of the string in
-    codepoints!  The "adjusted" length is designed so that the count
-    returned by this function can be directly compared to the count returned
-    by the `pinyin_count` function.  In order to make this happen, a few
-    Han characters with rhotic pronunciations that are not erhua must be
-    counted twice, but only when they are the last character in the
-    rendering.
 
 - **parse\_measures(str)**
 
@@ -344,6 +290,31 @@ individual functions for further information.
     traditional and simplified are the same, both of these will be the same
     string.)  If the third element is present, it is a Pinyin reading,
     normalized according to cedict\_pinyin().
+
+- **match\_pinyin(\\@hws, \\@pnys)**
+
+    Intelligently match Pinyin readings to the proper headwords within the
+    TOCFL data.
+
+    hws is a reference to an array storing the headwords.  There must be at
+    least one headword.  Each headword must be a string consisting of at
+    least one character, and all characters must be in the Unicode core CJK
+    block.
+
+    pnys is a reference to an array storing the Pinyin to match to these
+    headwords.  Each Pinyin must be a string in standard, normalized Pinyin
+    form.  `pinyin_split()` will be called on each Pinyin element within
+    this function, so there will be fatal errors if there are any invalid
+    Pinyin strings in the array.  There must be at least one Pinyin string.
+
+    The return value is an array in list context.  Each element of this
+    returned array is an array reference representing a match.  Each match
+    subarray contains two elements, the first being a string storing one of
+    the headwords from the hws array and the second being an array reference
+    to a non-empty array of Pinyin strings from pnys that match this
+    particular headword.
+
+    Fatal errors occur if there is any problem during the matching process.
 
 - **pinyin\_split(str)**
 
