@@ -2,8 +2,6 @@ package Sino::Util;
 use parent qw(Exporter);
 use strict;
 
-# @@TODO: first three elements in exmap no longer necessary?
-
 # We will use UTF-8 in string literals and some regular expressions.
 #
 # The extended character set in this source file is limited to diacritic
@@ -20,6 +18,7 @@ our @EXPORT_OK = qw(
                   extract_pronunciation
                   extract_xref
                   parse_cites
+                  match_pinyin
                   pinyin_split
                   tocfl_pinyin
                   cedict_pinyin);
@@ -35,31 +34,17 @@ Sino::Util - Utility functions for Sino.
 
   use Sino::Util qw(
         parse_multifield
-        han_exmap
-        pinyin_count
-        han_count
         parse_measures
         extract_pronunciation
         extract_xref
         parse_cites
+        match_pinyin
         pinyin_split
         tocfl_pinyin
         cedict_pinyin);
   
   # Parse a TOCFL field with multiple values into a list
   my @vals = parse_multifield($tocfl_field);
-  
-  # Check whether a Han sequence has an exception Pinyin mapping
-  my $pinyin = han_exmap($han);
-  if (defined($pinyin)) {
-    ...
-  }
-  
-  # Count the number of Pinyin syllables
-  my $syl_count = pinyin_count($pny);
-  
-  # Count the adjusted number of Han syllables
-  my $han_count = han_count($han);
   
   # Parse a gloss containing classifier/measure words
   my $result = parse_measures($gloss);
@@ -142,6 +127,15 @@ Sino::Util - Utility functions for Sino.
       if (scalar(@{$cites[$i]}) >= 3) {
         $cite_pny = $cites[$i]->[2];
       }
+      ...
+    }
+  }
+  
+  # Match headwords to Pinyin within TOCFL data
+  my @matches = match_pinyin(\@hws, \@pnys);
+  for my $match (@matches) {
+    my $head_word = $match->[0];
+    for my $pinyin (@{$match->[1]}) {
       ...
     }
   }
@@ -402,12 +396,9 @@ my %N_EXCEPTION = (
 );
 
 # Exceptional mappings of Han readings to Pinyin readings, for use by
-# the han_exmap function.
+# the match_pinyin function.
 #
 my %HAN_EX = (
-  "\x{5B30}\x{5152}" => "yīng'ér",
-  "\x{5973}\x{5152}" => "nǚ'ér",
-  "\x{5B64}\x{5152}" => "gū'ér",
   "\x{9019}\x{88E1}" => "zhèlǐ",
   "\x{9019}\x{88CF}" => "zhèlǐ",
   "\x{9019}\x{5152}" => "zhèr",
@@ -554,178 +545,6 @@ sub parse_multifield {
   
   # Return the target array
   return @ta;
-}
-
-=item B<han_exmap(han)>
-
-Given a string containing a Han rendering, return the Pinyin reading of
-this Han character if this is an exceptional mapping, or else return
-undef if there is no known exception mapping for this Han rendering.
-
-In a couple of cases in the TOCFL data, it is difficult to decide which
-Han reading maps to which Pinyin reading using regular rules.  It is
-easier in this cases to use a lookup table for exceptions, which this
-function provides.
-
-If I<all> the Han readings of a word have exceptional mappings as
-returned by this function I<and> all the exceptional Pinyin returned by
-this function already exists as Pinyin readings for this word, then use
-the mappings returned by this function.  Otherwise, use regular rules
-for resolving how Han and Pinyin are mapped in the TOCFL dataset.
-
-=cut
-
-sub han_exmap {
-  # Get and check parameter
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  my $h = shift;
-  (not ref($h)) or die "Wrong parameter type, stopped";
-  
-  # Use the lookup table
-  my $result = undef;
-  if (defined $HAN_EX{$h}) {
-    $result = $HAN_EX{$h};
-  }
-  return $result;
-}
-
-=item B<pinyin_count(str)>
-
-Given a string containing TOCFL-formatted Pinyin, return the number of
-syllables within the string.
-
-The TOCFL data files contain some inconsistencies in the Pinyin
-renderings that this function expects were already cleaned up during by
-the C<import_tocfl.pl> script.  No parentheses are allowed in the given
-Pinyin, as those should have been expanded into two different
-renderings already.  The ZWSP that appears exceptionally in some records
-should have already been dropped.  Breve diacritics should have already
-been changed into the proper caron diacritics.  The variant lowercase a
-codepoint should have already been changed into ASCII lowercase a.
-Fatal errors occur if you run this function on Pinyin strings that
-haven't been properly cleaned up.
-
-This function should properly handle cases where multiple sequences of
-vowels are directly adjacent.  This function will also count a final "r"
-at the end of the Pinyin as an additional syllable, since this is
-normally written with a separate character.
-
-=cut
-
-sub pinyin_count {
-  # Get and check parameter
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  my $p = shift;
-  (not ref($p)) or die "Wrong parameter type, stopped";
-  
-  # Start syllable count at zero
-  my $syl_count = 0;
-  
-  # First of all, decompose to NFD
-  $p = NFD($p);
-  
-  # Second, replace all tonal diacritics with acute accent
-  $p =~ s/[\x{300}\x{304}\x{30c}]/\x{301}/g;
-  
-  # Third, lowercase everything
-  $p =~ tr/A-Z/a-z/;
-  
-  # Fourth, recombine in NFC
-  $p = NFC($p);
-  
-  # Fifth, make sure only lowercase ASCII letters, lowercase u-umlaut,
-  # and acute accent vowels (and acute accent u-umlaut) remain
-  ($p =~ /\A[a-z\x{fc}\x{e1}\x{e9}\x{ed}\x{f3}\x{fa}\x{1d8}]+\z/) or
-    die "Pinyin contains unrecognized characters, stopped";
-  
-  # Sixth, if the last letter is "r" then drop it and increment syllable
-  # count
-  if ($p =~ /r\z/) {
-    $syl_count++;
-    $p = substr $p, 0, -1;
-  }
-  
-  # Seventh, count syllables by processing each sequence of vowels
-  for my $vsq ($p =~
-              /[aeiou\x{fc}\x{e1}\x{e9}\x{ed}\x{f3}\x{fa}\x{1d8}]+/g) {
-    # Get a copy of the vowel sequence
-    my $vs = $vsq;
-    
-    # Keep processing until at most a single vowel remains in the
-    # sequence
-    until (length($vs) <= 1) {
-      # Starting at the longest possible vowel combination that still
-      # fits within the string and proceeding backwards to length 2,
-      # look for the longest matching vowel multigraph, if there is
-      # one
-      my $multi_len = 0;
-      my $max_multi = $MAX_VSEQ;
-      if ($max_multi > length($vs)) {
-        $max_multi = length($vs);
-      }
-      for(my $tl = $max_multi; $tl >= 2; $tl--) {
-        # Check if a vowel multigraph of this length exists
-        if (defined($PNY_MULTI{substr($vs, 0, $tl)})) {
-          # Found a multigraph; set length and stop search
-          $multi_len = $tl;
-          last;
-        }
-      }
-      
-      # If we didn't find a multigraph, set the multigraph length to
-      # one so we just process a single vowel
-      unless ($multi_len > 0) {
-        $multi_len = 1;
-      }
-      
-      # Increase syllable count
-      $syl_count++;
-      
-      # Drop however many vowels we just processed
-      $vs = substr($vs, $multi_len);
-    }
-    
-    # We have at most one vowel remaining; if there is a single
-    # remaining vowel, increment the syllable count
-    if (length($vs) > 0) {
-      $syl_count++;
-    }
-  }
-  
-  # Return the syllable count
-  return $syl_count;
-}
-
-=item B<han_count(str)>
-
-Given a string of a Han rendering, return the adjusted count of
-characters.  This is not always the same as the length of the string in
-codepoints!  The "adjusted" length is designed so that the count
-returned by this function can be directly compared to the count returned
-by the C<pinyin_count> function.  In order to make this happen, a few
-Han characters with rhotic pronunciations that are not erhua must be
-counted twice, but only when they are the last character in the
-rendering.
-
-=cut
-
-sub han_count {
-  # Get and check parameter
-  ($#_ == 0) or die "Wrong number of parameters, stopped";
-  my $h = shift;
-  (not ref($h)) or die "Wrong parameter type, stopped";
-  
-  # Start with the length in codepoints
-  my $result = length($h);
-  
-  # If the last character is U+4E8C, U+800C, or U+723E, then add an
-  # additional increment
-  if ($h =~ /[\x{4e8c}\x{800c}\x{723e}]\z/) {
-    $result++;
-  }
-  
-  # Return adjusted count
-  return $result;
 }
 
 =item B<parse_measures(str)>
@@ -1918,6 +1737,228 @@ sub parse_cites {
   
   # Return results
   return @results;
+}
+
+=item B<match_pinyin(\@hws, \@pnys)>
+
+Intelligently match Pinyin readings to the proper headwords within the
+TOCFL data.
+
+hws is a reference to an array storing the headwords.  There must be at
+least one headword.  Each headword must be a string consisting of at
+least one character, and all characters must be in the Unicode core CJK
+block.
+
+pnys is a reference to an array storing the Pinyin to match to these
+headwords.  Each Pinyin must be a string in standard, normalized Pinyin
+form.  C<pinyin_split()> will be called on each Pinyin element within
+this function, so there will be fatal errors if there are any invalid
+Pinyin strings in the array.  There must be at least one Pinyin string.
+
+The return value is an array in list context.  Each element of this
+returned array is an array reference representing a match.  Each match
+subarray contains two elements, the first being a string storing one of
+the headwords from the hws array and the second being an array reference
+to a non-empty array of Pinyin strings from pnys that match this
+particular headword.
+
+Fatal errors occur if there is any problem during the matching process.
+
+=cut
+
+sub match_pinyin {
+  # Get and check parameters
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  my $hr = shift;
+  my $pr = shift;
+  
+  ((ref($hr) eq 'ARRAY') and (ref($pr) eq 'ARRAY')) or
+    die "Wrong parameter types, stopped";
+  
+  ((scalar(@$hr) > 0) and (scalar(@$pr) > 0)) or
+    die "Empty parameter arrays, stopped";
+  
+  # Define the hrl and prl arrays, which have the same number of
+  # elements as hr and pr respectively and store the length in syllables
+  # from pinyin_split() within prl (where erhua is counted as a separate
+  # syllable) and the length in characters within hrl; this also checks
+  # the array contents in the process
+  my @hrl;
+  my @prl;
+  
+  for my $hw (@$hr) {
+    ($hw =~ /\A[\x{4e00}-\x{9fff}]+\z/) or
+      die "Invalid headword, stopped";
+    push @hrl, (length($hw));
+  }
+  
+  for my $pny (@$pr) {
+    my $plen = scalar(pinyin_split($pny));
+    push @prl, ($plen);
+  }
+  
+  # FIRST EXCEPTIONAL CASE =============================================
+  
+  # If there are the exact same number of Han and Pinyin renderings,
+  # check for the special case where each element corresponds in length
+  my $special_case = 0;
+  if (scalar(@$hr) == scalar(@$pr)) {
+    $special_case = 1;
+    for(my $i = 0; $i < scalar(@$hr); $i++) {
+      unless ($hrl[$i] == $prl[$i]) {
+        $special_case = 0;
+        last;
+      }
+    }
+  }
+  
+  # If we got this first special case, just match each headword with the
+  # corresponding pinyin and return that without proceeding further
+  if ($special_case) {
+    my @sresult;
+    for(my $i = 0; $i < scalar(@$hr); $i++) {
+      push @sresult, ([$hr->[$i], [ $pr->[$i] ] ]);
+    }
+    return @sresult;
+  }
+  
+  # SECOND EXCEPTIONAL CASE ============================================
+  
+  # See if everything has an exceptional mapping
+  $special_case = 1;
+  for my $h (@$hr) {
+    unless (defined $HAN_EX{$h}) {
+      $special_case = 0;
+      last;
+    }
+  }
+  
+  # If everything does have an exceptional mapping, check if the
+  # exceptional mapping case applies
+  if ($special_case) {
+    # Get a hash of all Pinyin readings of this word and set each to a
+    # value of zero
+    my %pyh;
+    for my $p (@$pr) {
+      $pyh{$p} = 0;
+    }
+    
+    # Check that all exceptional mappings are in the hash and set all of
+    # the hash values to one
+    for my $h (@$hr) {
+      if (defined $pyh{$HAN_EX{$h}}) {
+        $pyh{$HAN_EX{$h}} = 1;
+        
+      } else {
+        $special_case = 0;
+        last;
+      }
+    }
+    
+    # If special case flag still on, check finally that all values in
+    # the hash have been set to one
+    if ($special_case) {
+      for my $v (values %pyh) {
+        unless ($v) {
+          $special_case = 0;
+          last;
+        }
+      }
+    }
+  }
+  
+  # If we got the exceptional mapping case, just match each headword
+  # with Pinyin from the exceptional mapping and return that
+  if ($special_case) {
+    my @sresult;
+    for(my $i = 0; $i < scalar(@$hr); $i++) {
+      push @sresult, ([$hr->[$i], [ $HAN_EX{$hr->[$i]} ] ]);
+    }
+    return @sresult;
+  }
+  
+  # GENERAL CASE =======================================================
+  
+  # General case -- start a mapping with character/syllable length as
+  # the key, and start out by setting the lengths of all Han renderings
+  # as keys, with the value of each set to zero if there is a single Han
+  # rendering with that length or one if there are multiple Han
+  # renderings with that length
+  my %lh;
+  for(my $i = 0; $i < scalar(@$hr); $i++) {
+    my $h   = $hr->[$i];
+    my $key = "$hrl[$i]";
+    if (defined $lh{$key}) {
+      $lh{$key} = 1;
+    } else {
+      $lh{$key} = 0;
+    }
+  }
+  
+  # Get the length in syllables of each Pinyin rendering (counting erhua
+  # r as a separate syllable), and for each verify that the length is
+  # already in the length mapping and that the mapped value is zero or
+  # one or three, then set the mapped value to two if it is one or three
+  # if it is zero
+  for(my $i = 0; $i < scalar(@$pr); $i++) {
+    my $p         = $pr->[$i];
+    my $syl_count = "$prl[$i]";
+    
+    # Now begin verification, first checking that there is a Han
+    # rendering with the same length
+    if (defined $lh{$syl_count}) {
+      # Second, check cases
+      if (($lh{$syl_count} == 0) or ($lh{$syl_count} == 3)) {
+        # Only a single Han rendering of this length, so we can have
+        # any number of Pinyin for it; always set to 3 after one is
+        # found so we can make sure every Han record was matched
+        $lh{$syl_count} = 3;
+        
+      } elsif ($lh{$syl_count} == 1) {
+        # Multiple Han renderings of this length that haven't been
+        # claimed yet, so claim them all
+        $lh{$syl_count} = 2;
+        
+      } else {
+        # Ambiguous mapping
+        die "Pinyin match failed, ambiguity, stopped";
+      }
+      
+    } else {
+      # No Han rendering with matching length
+      die "Pinyin match failed, no Han with length, stopped";
+    }
+  }
+  
+  # Make sure that every Han record was matched; all values in the
+  # length hash should be either 2 or 3
+  for my $v (values %lh) {
+    (($v == 2) or ($v == 3)) or
+      die "Pinyin matching failed, stranded Han, stopped";
+  }
+  
+  # Build the result array in general case
+  my @result;
+  for(my $i = 0; $i < scalar(@$hr); $i++) {
+    # Get current Han reading and its count
+    my $hanr = $hr->[$i];
+    my $hanc = $hrl[$i];
+
+    # Accumulate all Pinyin that have the same count
+    my @pys;
+    for(my $j = 0; $j < scalar(@$pr); $j++) {
+      my $p = $pr->[$j];
+      if ($prl[$j] == $hanc) {
+        push @pys, ($p);
+      }
+    }
+    
+    # Add the new record to result
+    push @result, ([$hanr, \@pys ]);
+  }
+  
+  # Return result array in general case
+  return @result;
 }
 
 =item B<pinyin_split(str)>
