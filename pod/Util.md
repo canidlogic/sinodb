@@ -141,7 +141,9 @@ individual functions for further information.
     array will never be empty.
 
     The first alternative value notation that is decoded is the ASCII
-    forward slash, which separates alternatives.
+    forward slash, which separates alternatives.  This function will also
+    recognize U+FF0F as a variant forward slash and treat it as if it were
+    a regular ASCII slash.
 
     The second alternative value notation that is decoded is parentheses,
     which include an optional sequence.  Either standard ASCII parentheses
