@@ -3,6 +3,7 @@
 This directory contains auxiliary scripts.
 
 - `charscan.pl` - Scan which codepoints are used in files
+- `coct_iterate.pl` - Iterate through parsed COCT records
 - `countlines.pl` - Count number of lines in a report
 - `expandtext.pl` - Utility for handling export of COCT word list
 - `linescan.pl` - Report lines that use certain codepoints in files
