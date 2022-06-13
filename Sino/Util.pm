@@ -110,21 +110,16 @@ Sino::Util - Utility functions for Sino.
     }
   }
   
-  # Parse gloss into citation array
+  # Find citations within a gloss
   my @cites = parse_cites($gloss);
-  for(my $i = 0; $i <= $#cites; $i++) {
-    if (($i % 2) == 0) {
-      my $literal_string = $cites[$i];
-      ...
-      
-    } else {
-      my $cite_trad = $cites[$i]->[0];
-      my $cite_simp = $cites[$i]->[1];
-      my $cite_pny;
-      if (scalar(@{$cites[$i]}) >= 3) {
-        $cite_pny = $cites[$i]->[2];
-      }
-      ...
+  for my $cite (@cites) {
+    my $starting_index = $cite->[0];
+    my $cite_length    = $cite->[1];
+    my $cite_trad      = $cite->[2];
+    my $cite_simp      = $cite->[3];
+    my $cite_pny;
+    if (scalar(@$cite) >= 5) {
+      $cite_pny = $cite->[4];
     }
   }
   
@@ -1604,18 +1599,25 @@ sub extract_xref {
 
 =item B<parse_cites(str)>
 
-Parse a given gloss into a citation array.
+Find and parse all citations within a given gloss.
 
-The return value is an array in list context of one or more elements.
-The first, third, fifth, etc. elements will be literal strings.  The
-second, fourth, sixth, etc. elements will be subarray references
-defining citations.
+The given string is not modified.  The return value is an array in list
+context that identifies the location within the given string of each
+citation and its parsed representation.  If there are no recognized
+citations within the string, an empty array will be returned.
 
-Citation subarrays consist of two or three elements.  The first two
-elements are the traditional and simplified Han renderings.  (If
-traditional and simplified are the same, both of these will be the same
-string.)  If the third element is present, it is a Pinyin reading,
-normalized according to cedict_pinyin().
+If you do not want cross-references and such to be picked up as
+citations, you should extract them from the gloss before passing the
+gloss to this function.
+
+The returned array has one subarray reference for each citation found,
+given in the order they appear in the string.  The array may be empty.
+Each subarray has either four or five elements.  The first element is
+the offset within the string of the first character of the citation and
+the second element is the length of the citation within the string.  The
+third and fourth elements are the traditional and simplified Han
+renderings of the citation.  If the fifth element is present, it is a
+Pinyin reading, normalized according to C<cedict_pinyin()>.
 
 =cut
 
@@ -1640,10 +1642,8 @@ sub parse_cites {
     push @candidates, ([$citepos, $citestr]);
   }
   
-  # Build the parsed citations list, each element containing the
-  # position and length of citation in the original string and the
-  # reference to the parsed citation subarray
-  my @citelist;
+  # Build the resulting parsed citations list
+  my @results;
   for my $rec (@candidates) {
     # Get current candidate string
     my $cstr = $rec->[1];
@@ -1666,14 +1666,16 @@ sub parse_cites {
     $pkey =~ s/\A\s*\[\s*//;
     $pkey =~ s/\s*\]\s*\z//;
     
-    # Attempt to normalize the Pinyin if present
+    # Attempt to normalize the Pinyin if present; silently drop it if it
+    # can't be normalized
     my $has_pinyin = 0;
     my $pinyin;
     
     if (length($pkey) > 0) {
-      $has_pinyin = 1;
       $pinyin = cedict_pinyin($pkey);
-      (defined $pinyin) or next;
+      if (defined $pinyin) {
+        $has_pinyin = 1;
+      }
     }
     
     # If simplified is present, drop the leading bar; else, copy the
@@ -1684,57 +1686,17 @@ sub parse_cites {
       $hsimp = $htrad;
     }
     
-    # If we got here, add to the citation list
-    my $cite;
+    # If we got here, add to the results
     if ($has_pinyin) {
-      $cite = [$htrad, $hsimp, $pinyin];
+      push @results, ([
+        $rec->[0], length($rec->[1]), $htrad, $hsimp, $pinyin
+      ]);
+
     } else {
-      $cite = [$htrad, $hsimp];
+      push @results, ([
+        $rec->[0], length($rec->[1]), $htrad, $hsimp
+      ]);
     }
-    
-    push @citelist, ([
-      $rec->[0], length($rec->[1]), $cite
-    ]);
-  }
-  
-  # Start the results array empty
-  my @results;
-  
-  # If there are no citations, just return a single-element array with
-  # just the passed string and proceed no further
-  if (scalar(@citelist) < 1) {
-    push @results, ($str);
-    return @results;
-  }
-  
-  # At least one citation, so figure out what comes in the original
-  # string after the very last citation
-  my $trailer = substr(
-                    $str,
-                    $citelist[$#citelist]->[0]
-                      + $citelist[$#citelist]->[1]);
-  
-  # Build the result array except for the trailer
-  for(my $i = 0; $i <= $#citelist; $i++) {
-    # Get the start of the preceding segment
-    my $preceding_i = 0;
-    if ($i > 0) {
-      $preceding_i = $citelist[$i - 1]->[0] + $citelist[$i - 1]->[1];
-    }
-    
-    # Get the segment preceding this citation
-    my $segment = substr(
-                    $str,
-                    $preceding_i,
-                    $citelist[$i]->[0] - $preceding_i);
-    
-    # Push the segment and then this citation
-    push @results, ($segment, $citelist[$i]->[2]);
-  }
-  
-  # Finally, push the trailer if it is not empty
-  if (length($trailer) > 0) {
-    push @results, ($trailer);
   }
   
   # Return results
