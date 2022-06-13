@@ -18,6 +18,9 @@ Sino::Multifile - Iterate through the lines in a sequence of files.
   # (Re)start an iteration through the files
   $mr->rewind;
   
+  # Rewind but start at a given file index
+  $mr->rewindTo(1);
+  
   # Get current file index
   my $findex = $mr->file_index;
   
@@ -176,6 +179,43 @@ sub rewind {
   $self->{'_index'  } =  0;
   $self->{'_linenum'} =  0;
   $self->{'_rec'    } = '';
+}
+
+=item B<rewindTo(index)>
+
+Similar to a C<rewind()> operation, except the reader object will be
+positioned so that the current file index is equal to C<index> and the
+first line read will be the first line of file C<index>.  No record is
+currently loaded after calling this function.
+
+C<index> must be at least zero and less than the number of file paths
+that was passed to the constructor.
+
+=cut
+
+sub rewindTo {
+  
+  # Check parameter count
+  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  
+  # Get self and parameter
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  my $target = shift;
+  ((not ref($target)) and (int($target) == $target)) or
+    die "Wrong parameter type, stopped";
+  
+  $target = int($target);
+  (($target >= 0) and ($target < scalar(@{$self->{'_fha'}}))) or
+    die "Index out of range, stopped";
+  
+  # Perform a regular rewind first
+  $self->rewind;
+  
+  # Alter state so we start reading at the given file index
+  $self->{'_index'} =  $target;
 }
 
 =item B<file_index()>
