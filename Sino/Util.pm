@@ -2034,8 +2034,10 @@ sub pinyin_split {
       }
     }
     
-    # Handle the special case of an er syllable
-    if ($str =~ /\A'[ēéěèe]r/) {
+    # Handle the special case of an er syllable where r followed by end
+    # of string or an initial consonant
+    if (($str =~ /\A'[ēéěèe]r\z/) or
+          ($str =~ /\A'[ēéěèe]r['pbtdkgmnczCZqjfsSxhlrwy]/)) {
       # Transfer this syllable to results (without the apostrophe), then
       # loop back
       my $s = substr($str, 1, 2);
