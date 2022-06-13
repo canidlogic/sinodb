@@ -65,6 +65,18 @@ Sino::Dict - Parse through the CC-CEDICT data file.
       for my $entry (@{$dict->entries}) {
         my $sense_number = $entry->{'sense'};
         my $gloss_text   = $entry->{'text'};
+        my $cites        = $entry->{'cites'};
+        for my $cite (@$cites) {
+          # Within $gloss_text:
+          my $starting_index = $cite->[0];
+          my $cite_length    = $cite->[1];
+          my $cite_trad      = $cite->[2];
+          my $cite_simp      = $cite->[3];
+          my $cite_pny;
+          if (scalar(@$cite) >= 5) {
+            $cite_pny = $cite->[4];
+          }
+        }
         
         # These properties same as the record-level annotation format
         my $gla_measures = $entry->{'measures'};
@@ -237,8 +249,10 @@ before using this module.
     Entries are each hash references.  They have properties `measures`
     `pronun` and `xref` with the same format as for `main_annote()`.
     They also have a `sense` integer which gives the sense number this
-    gloss belongs to and a `text` integer which stores the text of the 
-    gloss (without any annotations).
+    gloss belongs to, a `text` integer which stores the text of the gloss
+    (without any annotations), and a `cites` array reference that stores
+    the citations within `text`, in the same array format as is used by the
+    `parse_cites()` function of `Sino::Util`.
 
     **Note:** This is not a copy, so modifications to this array update the
     main record state.
