@@ -2,6 +2,7 @@
 
 This directory contains auxiliary scripts.
 
+- `cedict_seek.pl` - Parse a specific entry in CC-CEDICT
 - `charscan.pl` - Scan which codepoints are used in files
 - `coct_iterate.pl` - Iterate through parsed COCT records
 - `countlines.pl` - Count number of lines in a report
