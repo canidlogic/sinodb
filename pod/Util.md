@@ -85,21 +85,16 @@ Sino::Util - Utility functions for Sino.
       }
     }
     
-    # Parse gloss into citation array
+    # Find citations within a gloss
     my @cites = parse_cites($gloss);
-    for(my $i = 0; $i <= $#cites; $i++) {
-      if (($i % 2) == 0) {
-        my $literal_string = $cites[$i];
-        ...
-        
-      } else {
-        my $cite_trad = $cites[$i]->[0];
-        my $cite_simp = $cites[$i]->[1];
-        my $cite_pny;
-        if (scalar(@{$cites[$i]}) >= 3) {
-          $cite_pny = $cites[$i]->[2];
-        }
-        ...
+    for my $cite (@cites) {
+      my $starting_index = $cite->[0];
+      my $cite_length    = $cite->[1];
+      my $cite_trad      = $cite->[2];
+      my $cite_simp      = $cite->[3];
+      my $cite_pny;
+      if (scalar(@$cite) >= 5) {
+        $cite_pny = $cite->[4];
       }
     }
     
@@ -280,18 +275,25 @@ individual functions for further information.
 
 - **parse\_cites(str)**
 
-    Parse a given gloss into a citation array.
+    Find and parse all citations within a given gloss.
 
-    The return value is an array in list context of one or more elements.
-    The first, third, fifth, etc. elements will be literal strings.  The
-    second, fourth, sixth, etc. elements will be subarray references
-    defining citations.
+    The given string is not modified.  The return value is an array in list
+    context that identifies the location within the given string of each
+    citation and its parsed representation.  If there are no recognized
+    citations within the string, an empty array will be returned.
 
-    Citation subarrays consist of two or three elements.  The first two
-    elements are the traditional and simplified Han renderings.  (If
-    traditional and simplified are the same, both of these will be the same
-    string.)  If the third element is present, it is a Pinyin reading,
-    normalized according to cedict\_pinyin().
+    If you do not want cross-references and such to be picked up as
+    citations, you should extract them from the gloss before passing the
+    gloss to this function.
+
+    The returned array has one subarray reference for each citation found,
+    given in the order they appear in the string.  The array may be empty.
+    Each subarray has either four or five elements.  The first element is
+    the offset within the string of the first character of the citation and
+    the second element is the length of the citation within the string.  The
+    third and fourth elements are the traditional and simplified Han
+    renderings of the citation.  If the fifth element is present, it is a
+    Pinyin reading, normalized according to `cedict_pinyin()`.
 
 - **match\_pinyin(\\@hws, \\@pnys)**
 
