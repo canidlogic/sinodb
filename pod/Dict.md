@@ -8,10 +8,7 @@ Sino::Dict - Parse through the CC-CEDICT data file.
     use SinoConfig;
     
     # Open the data file
-    my $dict = Sino::Dict->load($config_dictpath);
-    
-    # Add supplementary definitions
-    $dict->supplement($config_datasets);
+    my $dict = Sino::Dict->load($config_dictpath, $config_datasets);
     
     # (Re)start an iteration through the dictionary
     $dict->rewind;
@@ -28,15 +25,51 @@ Sino::Dict - Parse through the CC-CEDICT data file.
       my $trad = $dict->traditional;
       my $simp = $dict->simplified;
       
-      # Array of Pinyin syllables, may include punctuation "syllables"
-      my @pnya = $dict->pinyin;
+      # Pinyin or undef if couldn't normalize
+      my $pinyin = $dict->pinyin;
       
-      # Definition is array of sense subarrays
-      for my $sense ($dict->senses) {
-        # Sense subarrays contain glosses
-        for my $gloss (@$sense) {
+      # Record-level annotations
+      my $rla = $dict->main_annote;
+      for my $measure ($rla->{'measures'}) {
+        my $trad = $measure->[0];
+        my $simp = $measure->[1];
+        my $pny;
+        if (scalar(@$measure) >= 3) {
+          $pny = $measure->[2];
+        }
+        ...
+      }
+      for my $pr ($rla->{'pronun'}) {
+        my $pr_context = $pr->[0];
+        for my $pny (@{$pr->[1]}) {
           ...
         }
+        my $pr_condition = $pr->[2];
+        ...
+      }
+      for my $xref ($rla->{'xref'}) {
+        my $xr_description = $xref->[0];
+        my $xr_type        = $xref->[1];
+        for my $xrr (@{$xref->[2]}) {
+          my $trad = $xrr->[0];
+          my $simp = $xrr->[1];
+          my $pny;
+          if (scalar(@$xrr) >= 3) {
+            $pny = $xrr->[2];
+          }
+        }
+        my $xr_suffix      = $xref->[3];
+      }
+      
+      # Entries
+      for my $entry (@{$dict->entries}) {
+        my $sense_number = $entry->{'sense'};
+        my $gloss_text   = $entry->{'text'};
+        
+        # These properties same as the record-level annotation format
+        my $gla_measures = $entry->{'measures'};
+        my $gla_pronuns  = $entry->{'pronun'};
+        my $gla_xrefs    = $entry->{'xref'};
       }
     }
 
@@ -55,46 +88,40 @@ before using this module.
 
 # CONSTRUCTOR
 
-- **load(data\_path)**
+- **load(data\_path, dataset\_path)**
 
     Construct a new dictionary parser object.  `data_path` is the path in
     the local file system to the _decompressed_ CC-CEDICT data file.
     Normally, you get this path from the `SinoConfig` module, as shown in
     the synopsis.
 
-    An read-only file handle to the data file is kept open while the object
-    is constructed.  Undefined behavior occurs if the data file changes
-    while a parser object is opened.  The destructor for this object will
-    close the file handle automatically.
+    `dataset_path` is the path to the directory containing Sino
+    supplemental datasets.  This path must end with a separator character so
+    that filenames can be directly appended to it.  This is used to get the
+    path to `extradfn.txt` in that directory, which contains extra
+    definitions to consider added on to the end of the main dictionary file.
+    Normally, you get this path from the `SinoConfig` module, as shown in
+    the synopsis.
 
-    This constructor does not actually read anything from the file yet.  It
-    also does not load any supplementary definitions.  You must call the
-    `supplement` function after construction to do that.
+    An read-only file handle to the data files is kept open while the object
+    is constructed.  Undefined behavior occurs if the data files change
+    while a parser object is opened.  The destructor for the underlying
+    object managing the file handles will close the file handle
+    automatically.
 
-# DESTRUCTOR
-
-The destructor for the parser object closes the file handle(s).
+    This constructor does not actually read anything from the file yet.
 
 # INSTANCE METHODS
-
-- **supplement($config\_datasets)**
-
-    Add supplementary definitions into the parser, such that the parser will
-    act as if the supplementary definitions file is concatenated to the end
-    of the dictionary file.
-
-    Pass the `config_datasets` variable defined in the `SinoConfig`
-    configuration file.  This will be used to locate the supplementary
-    definitions file.
-
-    If this function is called more than once, subsequent calls are ignored.
 
 - **rewind()**
 
     Rewind the data file back to the beginning and change the state of this
-    parser to Beginning Of File (BOF).  This is also the initial state of
+    parser to Beginning Of Stream (BOS).  This is also the initial state of
     the parser object after construction.  No record is currently loaded
     after calling this function.
+
+    This rewinds back to the very beginning of the main dictionary file,
+    even if you are currently in the supplement.
 
 - **seek(n)**
 
@@ -103,23 +130,25 @@ The destructor for the parser object closes the file handle(s).
     with a value of 1 is equivalent to calling the rewind function.  No
     record is currently loaded after calling this function.
 
+    You can use negative values to select line numbers in the supplement.
+    \-1 is the first line in the supplement, -2 is the second line, and so
+    forth.
+
     First, this function performs a rewind operation.  Second, this function
     reads zero or more lines until either the current line number advances
-    to one less than the given `n` value, or EOF is reached.  When advance
+    to one less than the given `n` value, or EOS is reached.  When advance
     is called, it will act as though the first line of the file were the
     given line number.
 
-    `n` must be an integer greater than zero.  Note that if advance
-    successfully reads a record, the line number of this record is _not_
-    necessarily the same as `n`.  If `n` refers to a comment line or a
-    blank line, advance will read the next line that is not a comment or
-    blank.
+    `n` must be an integer greater than zero or less than zero (if
+    selecting a line in the supplement).  Note that if advance successfully
+    reads a record, the line number of this record is _not_ necessarily the
+    same as the line selected by `n`.  If `n` refers to a comment line or
+    a blank line, advance will read the next line that is not a comment or
+    blank, or may even go to EOS.
 
     This function is _much_ faster than just advancing over records,
     because this function will not parse any of the lines it is skipping.
-
-    This function can't be used to seek to lines in the supplement, if a
-    supplement is defined.
 
 - **line\_number()**
 
@@ -130,8 +159,8 @@ The destructor for the parser object closes the file handle(s).
     After an advance operation that returns false, this will return the line
     number of the last line in the file.
 
-    The behavior of line numbers is unreliable once you are into the
-    supplement file, if a supplement file is defined.
+    In the supplement file, line numbers will be negative.  -1 is first line
+    in supplement file, -2 is second line, and so forth.
 
 - **advance()**
 
@@ -143,8 +172,11 @@ The destructor for the parser object closes the file handle(s).
     _before_ reading the first record in the dictionary.
 
     The return value is 1 if a new record was loaded, 0 if we have reached
-    End Of File (EOF).  Once EOF is reached, subsequent calls to this
-    function will return EOF until a rewind operation is performed.
+    End Of Stream (EOS).  Once EOS is reached, subsequent calls to this
+    function will return EOS until a rewind operation is performed.
+
+    This function will also seamlessly read through the supplement file
+    after reading through the main dictionary file.
 
 - **traditional()**
 
@@ -166,30 +198,50 @@ The destructor for the parser object closes the file handle(s).
 
 - **pinyin()**
 
-    Return each of the Pinyin syllables of the currently loaded dictionary
-    record.  The return is a list in list context.
+    Return the normalized Pinyin for this record, or `undef` if the Pinyin
+    could not be normalized.
 
     This may only be used after a successful call to the advance function.
     A fatal error occurs if this function is called in Beginning Of File
     (BOF) or End Of File (EOF) state.
 
-- **senses()**
+- **main\_annote()**
 
-    Return all the definitions of the currently loaded dictionary record.
-    The return is a list in list context.  The elements of this list
-    represent the separate senses of the word.  Each element is an array
-    reference, and these subarrays store a sequence of gloss strings
-    representing glosses for the sense.
-
-    This function makes a copy of the arrays it returns, so modifying the
-    arrays will not affect the state of the parser object.
-
-    Note that CC-CEDICT stores various other kinds of information here, such
-    as variant references, Taiwan Pinyin, and more.
+    Return a reference to the main annotations hash for this record.
 
     This may only be used after a successful call to the advance function.
     A fatal error occurs if this function is called in Beginning Of File
     (BOF) or End Of File (EOF) state.
+
+    The returned hash has three properties: `measures` `pronun` and
+    `xref`.  Each of these are array references.  The measures array stores
+    subarrays consisting of the traditional han, simplified han, and
+    optionally the normalized Pinyin.  The pronunciations array stores
+    subarrays consisting of the context, a subarray of normalized Pinyin
+    readings, and a condition.  The cross-references array stores subarrays
+    consisting of the description, type, subarray, and suffix, where the
+    subarray has further xref subarrays with traditional han, simplified
+    han, and optionally normalized Pinyin.
+
+    **Note:** This is not a copy, so modifications to this hash update the
+    main record state.
+
+- **entries()**
+
+    Return a reference to the entries array for this record.
+
+    This may only be used after a successful call to the advance function.
+    A fatal error occurs if this function is called in Beginning Of File
+    (BOF) or End Of File (EOF) state.
+
+    Entries are each hash references.  They have properties `measures`
+    `pronun` and `xref` with the same format as for `main_annote()`.
+    They also have a `sense` integer which gives the sense number this
+    gloss belongs to and a `text` integer which stores the text of the 
+    gloss (without any annotations).
+
+    **Note:** This is not a copy, so modifications to this array update the
+    main record state.
 
 # AUTHOR
 
