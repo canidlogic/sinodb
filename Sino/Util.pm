@@ -1472,11 +1472,11 @@ sub extract_xref {
 /
   \A
   \s*
-  (erhua|old|archaic|dialect|euphemistic|Taiwan|colloquial|slang)?
+  ((?:erhua|old|archaic|dialect|euphemistic|Taiwan|colloquial|slang)?)
   \s*
   (variant|contraction|used|abbr\.|see|equivalent|same|also|contrasted)
   \s*
-  (of|in|for|to|also|as|written|with)?
+  ((?:of|in|for|to|also|as|written|with)?)
   \s*
   \x{1a}
   \s*
