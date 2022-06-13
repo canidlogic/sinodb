@@ -737,8 +737,10 @@ A fatal error occurs if this function is called in Beginning Of File
 Entries are each hash references.  They have properties C<measures>
 C<pronun> and C<xref> with the same format as for C<main_annote()>.
 They also have a C<sense> integer which gives the sense number this
-gloss belongs to and a C<text> integer which stores the text of the 
-gloss (without any annotations).
+gloss belongs to, a C<text> integer which stores the text of the gloss
+(without any annotations), and a C<cites> array reference that stores
+the citations within C<text>, in the same array format as is used by the
+C<parse_cites()> function of C<Sino::Util>.
 
 B<Note:> This is not a copy, so modifications to this array update the
 main record state.
