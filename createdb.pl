@@ -48,12 +48,12 @@ which has one of the following values:
        9     |      -      |     -      | level9.txt 
 
 When different TOCFL source words are merged together in this table, the
-merged word has the minimum wordlevel of the words being merged.
+merged word has the minimum C<wordlevel> of the words being merged.
 
 =head2 han table
 
-The han table stores the Chinese characters for each word.  Each word
-may have multiple Han readings.  The C<wordid> is a foreign key into the
+The han table stores the Han characters for each word.  Each word may
+have multiple Han readings.  The C<wordid> is a foreign key into the
 C<word> table.  C<hanord> determines the ordering if there are multiple
 versions for the same word.  C<hantrad> stores the traditional
 characters.
@@ -63,8 +63,8 @@ I<not> allowed to have the same Han character rendering.  This does
 happen sometimes in the TOCFL dataset, in which case words are merged
 together.
 
-When different TOCFL source words are merged together in this table, the
-merged word has all unique Han renderings across the merged words.
+When different TOCFL source words are merged together, the merged word
+has all the unique Han renderings across the merged words.
 
 =head2 pny table
 
@@ -74,19 +74,12 @@ files, so they should all be for Taiwan Mandarin.  Each Han reading may
 have multiple Pinyin readings.  The C<hanid> is a foreign key into the
 C<han> table.  C<pnyord> determines the ordering if there are multiple
 Pinyin readings for the same Han reading.  C<pnytext> is the actual
-Pinyin.  The format used in the TOCFL data files is used in the Sino
-database, with syllables written directly after on another,
-Unicode diacritics used for tone marking, and everything lowercase.
+Pinyin.  The Pinyin is normalized into standard form (see C<pinyin.md>
+for details of the standard format).
 
-However, breve diacritics in the TOCFL data files are replaced with the
-proper caron diacritics, parenthetical options are not allowed,  ZWSP is
-dropped when it occurs, the lowercase a variant codepoint is replaced
-with ASCII a, and a couple of cases where the wrong vowel was marked
-with the tonal diacritic are corrected.  See the C<import_tocfl.pl>
-script for further information.
-
-When different TOCFL source words are merged together in this table, the
-merged word has all unique Pinyin renderings across the merged words.
+When different TOCFL source words are merged together, the merged word
+has all the unique Pinyin renderings of all the unique Han readings
+across the merged words.
 
 =head2 wclass table
 
@@ -110,6 +103,20 @@ When different TOCFL source words are merged together in this table, the
 merged word has all unique part-of-speech designations across the merged
 words.
 
+=head2 ref table
+
+The ref table stores CC-CEDICT reference entities.  Each reference
+entity must have a traditional Han reading and a simplified Han reading.
+(If traditional and simplified are the same, then both fields should
+have the same value.)  The traditional field is C<reftrad> and the
+simplified field is C<refsimp>.
+
+A reference entity may optionally have a Pinyin reading.  If present,
+the Pinyin reading is stored in C<refpny> and must be in normalized form
+(see C<pinyin.md>).  If not present, the field may be NULL.  Note that
+reference entity Pinyin generally uses mainland pronunications rather
+than Taiwanese.
+
 =head2 mpy table
 
 The mpy table stores the top-level definition records from CC-CEDICT
@@ -120,26 +127,115 @@ table allows for multiple definitions for each Han reading, with
 C<mpyord> used to order each of these definition records.
 
 This table also stores additional data from the CC-CEDICT dictionary
-that is specific to individual records.  The C<mpytrad> and C<mpysimp>
-fields store the traditional-character and simplified-character Han
-readings.  The C<mpypny> field stores the Pinyin from CC-CEDICT.  Note
-that this Pinyin is in a different format than is used in the C<pny>
-table, and also note that mainland pronunciations are used instead of
-Taiwan Mandarin.
+that is specific to individual records.  There is a foreign key into the
+ref table that defines the traditional, simplified, and Pinyin readings
+of this particular record as they appear in CC-CEDICT.  (NULL is used
+for Pinyin when the Pinyin in CC-CEDICT fails to normalize.)  Also, the
+C<mpyprop> field is 1 if the original CC-CEDICT Pinyin had any uppercase
+letters in it (indicating a proper name entry), else zero.
 
 In a few cases, the TOCFL/COCT word list uses Han forms that are
 considered simplified in CC-CEDICT, so in those cases the Han from the
-C<han> table will match with C<mpysimp> instead of with C<mpytrad>.
+C<han> table will match with the simplified reading in the reference
+entity rather than the traditional one.
 
 =head2 dfn table
 
 The dfn table associates glosses from CC-CEDICT with definition records
 in the C<mpy> table.  C<mpyid> is a foreign key into that table.
 
-CC-CEDICT glosses for a particular Han reading are organized according
-to two sequence orderings.  The greater sequence ordering is C<dfnosen>,
-the sense ordering.  The lesser sequence ordering is C<dfnogls>, the
-gloss ordering.  Finally, C<dfntext> gives the actual gloss text.
+When there are multiple glosses for an C<mpy> record, C<dfnord> is used
+to establish an ordering for them.
+
+There is also a C<dfnsen> field which indicates the sense number.
+Glosses when ordered by C<dfnsen> will be in the same order as for the
+C<dfnord> field, except that there might be multiple glosses with the
+same sense number.
+
+Example of C<dfnord> and C<dfnsen>:
+
+   dfnsen | dfnord |                    dfntext
+  ========+========+===============================================
+      1   |    1   | complete change from the normal state (idiom)
+      1   |    2   | quite uncharacteristic
+      2   |    3   | entirely outside the norm
+      3   |    4   | out of character
+
+In this example, the first two glosses are both part of the same sense,
+while the last two glosses are each their own sense.
+
+C<dfntext> gives the gloss text.  However, classifier glosses, alternate
+pronunciation glosses, and cross-reference glosses have already been
+extracted and are not present in the gloss text.  No glosses with empty
+gloss text are allowed.
+
+=head2 cit table
+
+The cit table annotates glosses in the dfn table with citations.
+Citations reference a substring of a specific gloss and provide a parsed
+representation of it.
+
+Each record in this table has a foreign key into the dfn table, and then
+C<citoff> and C<citlen> fields defining the codepoint starting offset
+and codepoint length of the citation within the gloss.  Each record also
+has a foreign key into the ref table which specifies the parsed form of
+the citation.
+
+=head2 msm and msd tables
+
+The msm and msd tables define measure words (also known as classifiers)
+and associate them with records in the C<mpy> and C<dfn> tables.  The
+only difference between msm and msd is that msm links to the C<mpy>
+table and msd links to the C<dfn> table.
+
+Both tables contain a foreign key defining what they are annotating
+(C<mpyid> or C<dfnid>).  Both tables have an C<msmord> or C<msdord>
+field that orders measure words when there are multiple measure word
+annotations on the same entity.  Finally, both tables have a foreign key
+into the C<ref> table that identifies the specific classifier.
+
+=head2 atm table
+
+The atm table defines atom strings that are used in pronunciation and
+cross-reference glosses.  Since there is a lot of repetition in these
+values, it makes sense to have an atom table.
+
+C<atmid> lets atoms be referenced by a foreign key, while C<atmval> is
+the actual text of the atom, which may be an empty string.  However,
+C<atmval> must be unique within the atom table.
+
+=head2 apm and apd tables
+
+The apm and apd tables define alternate pronunications and associate
+them with records in the C<mpy> and C<dfn> tables.  The only difference
+between apm and apd is that apm links to the C<mpy> table and apd links
+to the C<dfn> table.
+
+Both tables contain a foreign key defining what they are annotating
+(C<mpyid> or C<dfnid>).  Both tables have an C<apmord> or C<apdord>
+field that orders pronunciations when there are multiple pronunciation
+annotations on the same entity.  Both tables have a C<apmpny> or
+C<apdpny> field that stores the Pinyin for the alternate pronunciation,
+normalized according to C<pinyin.md>.  Finally, both tables have
+C<ctx> and C<cond> fields specifying the context and condition in which
+the alternate pronunication is used.  Both of these fields are foreign
+keys into the atm table.
+
+=head2 xrm and xrd tables
+
+The xrm and xrd tables define cross-references and associate them with
+records in the C<mpy> and C<dfn> tables.  The only difference between
+xrm and xrd is that xrm links to the C<mpy> table and xrd links to the
+C<dfn> table.
+
+Both tables contain a foreign key defining what they are annotating
+(C<mpyid> or C<dfnid>).  Both tables have an C<ord> field that orders
+cross-references when there are multiple cross-reference annotations on
+the same entity.  Both tables have a foreign key into the ref table
+identifying the cross-reference.  Finally, both tables have C<desc>
+C<type> and C<suf> fields specifying the cross-reference descriptor,
+the cross-reference type, and the cross-reference suffix.  Each of these
+three final fields are foreign keys into the atm table.
 
 =cut
 
@@ -229,6 +325,20 @@ CREATE INDEX ix_wc_word
 CREATE INDEX ix_wc_class
   ON wc(wclassid);
 
+CREATE TABLE ref (
+  refid   INTEGER PRIMARY KEY ASC,
+  reftrad TEXT NOT NULL,
+  refsimp TEXT NOT NULL,
+  refpny  TEXT,
+  UNIQUE  (reftrad, refsimp, refpny)
+);
+
+CREATE UNIQUE INDEX ix_ref_rec
+  ON ref(reftrad, refsimp, refpny);
+
+CREATE INDEX ix_ref_trad
+  ON ref(reftrad);
+
 CREATE TABLE mpy (
   mpyid   INTEGER PRIMARY KEY ASC,
   hanid   INTEGER NOT NULL
@@ -236,9 +346,11 @@ CREATE TABLE mpy (
               ON DELETE CASCADE
               ON UPDATE CASCADE,
   mpyord  INTEGER NOT NULL,
-  mpytrad TEXT NOT NULL,
-  mpysimp TEXT NOT NULL,
-  mpypny  TEXT NOT NULL,
+  refid   INTEGER NOT NULL
+            REFERENCES ref(refid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  mpyprop INTEGER NOT NULL,
   UNIQUE  (hanid, mpyord)
 );
 
@@ -248,14 +360,8 @@ CREATE UNIQUE INDEX ix_mpy_rec
 CREATE INDEX ix_mpy_han
   ON mpy(hanid);
 
-CREATE INDEX ix_mpy_trad
-  ON mpy(mpytrad);
-
-CREATE INDEX ix_mpy_simp
-  ON mpy(mpysimp);
-
-CREATE INDEX ix_mpy_pny
-  ON mpy(mpypny);
+CREATE INDEX ix_mpy_ref
+  ON mpy(refid);
 
 CREATE TABLE dfn (
   dfnid   INTEGER PRIMARY KEY ASC,
@@ -263,17 +369,221 @@ CREATE TABLE dfn (
             REFERENCES mpy(mpyid)
               ON DELETE CASCADE
               ON UPDATE CASCADE,
-  dfnosen INTEGER NOT NULL,
-  dfnogls INTEGER NOT NULL,
+  dfnord  INTEGER NOT NULL,
+  dfnsen  INTEGER NOT NULL,
   dfntext TEXT NOT NULL,
-  UNIQUE  (mpyid, dfnosen, dfnogls)
+  UNIQUE  (mpyid, dfnord)
 );
 
 CREATE UNIQUE INDEX ix_dfn_rec
-  ON dfn(mpyid, dfnosen, dfnogls);
+  ON dfn(mpyid, dfnord);
 
 CREATE INDEX ix_dfn_mpy
   ON dfn(mpyid);
+
+CREATE TABLE cit (
+  citid   INTEGER PRIMARY KEY ASC,
+  dfnid   INTEGER NOT NULL
+            REFERENCES dfn(dfnid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  citoff  INTEGER NOT NULL,
+  citlen  INTEGER NOT NULL,
+  refid   INTEGER NOT NULL
+            REFERENCES ref(refid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  UNIQUE  (dfnid, citoff)
+);
+
+CREATE UNIQUE INDEX ix_cit_rec
+  ON cit(dfnid, citoff);
+
+CREATE INDEX ix_cit_gloss
+  ON cit(dfnid);
+
+CREATE INDEX ix_cit_ref
+  ON cit(refid);
+
+CREATE TABLE msm (
+  msmid   INTEGER PRIMARY KEY ASC,
+  mpyid   INTEGER NOT NULL
+            REFERENCES mpy(mpyid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  msmord  INTEGER NOT NULL,
+  refid   INTEGER NOT NULL
+            REFERENCES ref(refid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  UNIQUE  (mpyid, msmord)
+);
+
+CREATE UNIQUE INDEX ix_msm_rec
+  ON msm(mpyid, msmord);
+
+CREATE INDEX ix_msm_mpy
+  ON msm(mpyid);
+
+CREATE INDEX ix_msm_ref
+  ON msm(refid);
+
+CREATE TABLE msd (
+  msdid   INTEGER PRIMARY KEY ASC,
+  dfnid   INTEGER NOT NULL
+            REFERENCES dfn(dfnid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  msdord  INTEGER NOT NULL,
+  refid   INTEGER NOT NULL
+            REFERENCES ref(refid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  UNIQUE  (dfnid, msdord)
+);
+
+CREATE UNIQUE INDEX ix_msd_rec
+  ON msd(dfnid, msdord);
+
+CREATE INDEX ix_msd_dfn
+  ON msd(dfnid);
+
+CREATE INDEX ix_msd_ref
+  ON msd(refid);
+
+CREATE TABLE atm (
+  atmid  INTEGER PRIMARY KEY ASC,
+  atmval TEXT UNIQUE NOT NULL
+);
+
+CREATE UNIQUE INDEX ix_atm_val
+  ON atm(atmval);
+
+CREATE TABLE apm (
+  apmid   INTEGER PRIMARY KEY ASC,
+  mpyid   INTEGER NOT NULL
+            REFERENCES mpy(mpyid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  apmord  INTEGER NOT NULL,
+  apmctx  INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  apmcond INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  apmpny  TEXT NOT NULL,
+  UNIQUE  (mpyid, apmord)
+);
+
+CREATE UNIQUE INDEX ix_apm_rec
+  ON apm(mpyid, apmord);
+
+CREATE INDEX ix_apm_mpy
+  ON apm(mpyid);
+
+CREATE INDEX ix_apm_pny
+  ON apm(apmpny);
+
+CREATE TABLE apd (
+  apdid   INTEGER PRIMARY KEY ASC,
+  dfnid   INTEGER NOT NULL
+            REFERENCES dfn(dfnid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  apdord  INTEGER NOT NULL,
+  apdctx  INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  apdcond INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  apdpny  TEXT NOT NULL,
+  UNIQUE  (dfnid, apdord)
+);
+
+CREATE UNIQUE INDEX ix_apd_rec
+  ON apd(dfnid, apdord);
+
+CREATE INDEX ix_apd_dfn
+  ON apd(dfnid);
+
+CREATE INDEX ix_apd_pny
+  ON apd(apdpny);
+
+CREATE TABLE xrm (
+  xrmid   INTEGER PRIMARY KEY ASC,
+  mpyid   INTEGER NOT NULL
+            REFERENCES mpy(mpyid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  xrmord  INTEGER NOT NULL,
+  refid   INTEGER NOT NULL
+            REFERENCES ref(refid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  xrmdesc INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  xrmtype INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  xrmsuf  INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  UNIQUE  (mpyid, xrmord)
+);
+
+CREATE UNIQUE INDEX ix_xrm_rec
+  ON xrm(mpyid, xrmord);
+
+CREATE INDEX ix_xrm_mpy
+  ON xrm(mpyid);
+
+CREATE INDEX ix_xrm_ref
+  ON xrm(refid);
+
+CREATE TABLE xrd (
+  xrdid   INTEGER PRIMARY KEY ASC,
+  dfnid   INTEGER NOT NULL
+            REFERENCES dfn(dfnid)
+              ON DELETE CASCADE
+              ON UPDATE CASCADE,
+  xrdord  INTEGER NOT NULL,
+  refid   INTEGER NOT NULL
+            REFERENCES ref(refid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  xrddesc INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  xrdtype INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  xrdsuf  INTEGER NOT NULL
+            REFERENCES atm(atmid)
+              ON DELETE RESTRICT
+              ON UPDATE RESTRICT,
+  UNIQUE  (dfnid, xrdord)
+);
+
+CREATE UNIQUE INDEX ix_xrd_rec
+  ON xrd(dfnid, xrdord);
+
+CREATE INDEX ix_xrd_dfn
+  ON xrd(dfnid);
+
+CREATE INDEX ix_xrd_ref
+  ON xrd(refid);
 
 };
 
