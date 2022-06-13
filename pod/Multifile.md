@@ -12,6 +12,9 @@ Sino::Multifile - Iterate through the lines in a sequence of files.
     # (Re)start an iteration through the files
     $mr->rewind;
     
+    # Rewind but start at a given file index
+    $mr->rewindTo(1);
+    
     # Get current file index
     my $findex = $mr->file_index;
     
@@ -74,6 +77,16 @@ The destructor for the parser object closes the file handles.
 
     This rewinds all the way back to the start of the first file, regardless
     of which file you are currently reading.
+
+- **rewindTo(index)**
+
+    Similar to a `rewind()` operation, except the reader object will be
+    positioned so that the current file index is equal to `index` and the
+    first line read will be the first line of file `index`.  No record is
+    currently loaded after calling this function.
+
+    `index` must be at least zero and less than the number of file paths
+    that was passed to the constructor.
 
 - **file\_index()**
 
