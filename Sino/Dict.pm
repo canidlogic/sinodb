@@ -1,8 +1,13 @@
 package Sino::Dict;
 use strict;
 
-# Core dependencies
-use Fcntl qw(:seek);
+# Sino modules
+use Sino::Multifile;
+use Sino::Util qw(
+                cedict_pinyin
+                parse_measures
+                extract_pronunciation
+                extract_xref);
 
 =head1 NAME
 
@@ -14,10 +19,7 @@ Sino::Dict - Parse through the CC-CEDICT data file.
   use SinoConfig;
   
   # Open the data file
-  my $dict = Sino::Dict->load($config_dictpath);
-  
-  # Add supplementary definitions
-  $dict->supplement($config_datasets);
+  my $dict = Sino::Dict->load($config_dictpath, $config_datasets);
   
   # (Re)start an iteration through the dictionary
   $dict->rewind;
@@ -34,15 +36,51 @@ Sino::Dict - Parse through the CC-CEDICT data file.
     my $trad = $dict->traditional;
     my $simp = $dict->simplified;
     
-    # Array of Pinyin syllables, may include punctuation "syllables"
-    my @pnya = $dict->pinyin;
+    # Pinyin or undef if couldn't normalize
+    my $pinyin = $dict->pinyin;
     
-    # Definition is array of sense subarrays
-    for my $sense ($dict->senses) {
-      # Sense subarrays contain glosses
-      for my $gloss (@$sense) {
+    # Record-level annotations
+    my $rla = $dict->main_annote;
+    for my $measure ($rla->{'measures'}) {
+      my $trad = $measure->[0];
+      my $simp = $measure->[1];
+      my $pny;
+      if (scalar(@$measure) >= 3) {
+        $pny = $measure->[2];
+      }
+      ...
+    }
+    for my $pr ($rla->{'pronun'}) {
+      my $pr_context = $pr->[0];
+      for my $pny (@{$pr->[1]}) {
         ...
       }
+      my $pr_condition = $pr->[2];
+      ...
+    }
+    for my $xref ($rla->{'xref'}) {
+      my $xr_description = $xref->[0];
+      my $xr_type        = $xref->[1];
+      for my $xrr (@{$xref->[2]}) {
+        my $trad = $xrr->[0];
+        my $simp = $xrr->[1];
+        my $pny;
+        if (scalar(@$xrr) >= 3) {
+          $pny = $xrr->[2];
+        }
+      }
+      my $xr_suffix      = $xref->[3];
+    }
+    
+    # Entries
+    for my $entry (@{$dict->entries}) {
+      my $sense_number = $entry->{'sense'};
+      my $gloss_text   = $entry->{'text'};
+      
+      # These properties same as the record-level annotation format
+      my $gla_measures = $entry->{'measures'};
+      my $gla_pronuns  = $entry->{'pronun'};
+      my $gla_xrefs    = $entry->{'xref'};
     }
   }
 
@@ -63,28 +101,35 @@ before using this module.
 
 =over 4
 
-=item B<load(data_path)>
+=item B<load(data_path, dataset_path)>
 
 Construct a new dictionary parser object.  C<data_path> is the path in
 the local file system to the I<decompressed> CC-CEDICT data file.
 Normally, you get this path from the C<SinoConfig> module, as shown in
 the synopsis.
 
-An read-only file handle to the data file is kept open while the object
-is constructed.  Undefined behavior occurs if the data file changes
-while a parser object is opened.  The destructor for this object will
-close the file handle automatically.
+C<dataset_path> is the path to the directory containing Sino
+supplemental datasets.  This path must end with a separator character so
+that filenames can be directly appended to it.  This is used to get the
+path to C<extradfn.txt> in that directory, which contains extra
+definitions to consider added on to the end of the main dictionary file.
+Normally, you get this path from the C<SinoConfig> module, as shown in
+the synopsis.
 
-This constructor does not actually read anything from the file yet.  It
-also does not load any supplementary definitions.  You must call the
-C<supplement> function after construction to do that.
+An read-only file handle to the data files is kept open while the object
+is constructed.  Undefined behavior occurs if the data files change
+while a parser object is opened.  The destructor for the underlying
+object managing the file handles will close the file handle
+automatically.
+
+This constructor does not actually read anything from the file yet.
 
 =cut
 
 sub load {
   
   # Check parameter count
-  ($#_ == 1) or die "Wrong number of parameters, stopped";
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
   
   # Get invocant and parameter
   my $invocant = shift;
@@ -95,30 +140,46 @@ sub load {
   
   (-f $data_path) or die "Can't find file '$data_path', stopped";
   
+  my $dataset_path = shift;
+  (not ref($dataset_path)) or die "Wrong parameter types, stopped";
+  
+  my $supplement_path = $dataset_path . 'extradfn.txt';
+  (-f $supplement_path) or
+    die "Can't find file '$supplement_path', stopped";
+  
   # Define the new object
   my $self = { };
   bless($self, $class);
   
-  # The '_fh' property will store the file handle to the main dicitonary
-  # file
-  open(my $fh, '< :encoding(UTF-8) :crlf', $data_path) or
-    die "Failed to open file '$data_path', stopped";
+  # The '_mr' property will store a Sino::Multifile that iterates
+  # through the CC-CEDICT data file and then the supplement
+  $self->{'_mr'} = Sino::Multifile->load([
+                          $data_path, $supplement_path]);
   
-  $self->{'_fh'} = $fh;
-  
-  # There will be a '_fs' property storing a file handle to the
-  # supplement file, but only after the supplement function is called
-  
-  # The '_state' property will be -1 for BOF, 0 for record, 1 for EOF
+  # The '_state' property will be -1 for BOS, 0 for record, 1 for EOS
   $self->{'_state'} = -1;
-  
-  # The '_linenum' property is the line number of the last line that was
-  # read (where 1 is the first line), or 0 when BOF
-  $self->{'_linenum'} = 0;
   
   # When '_state' is 0, the '_rec' hash stores each of the properties
   # of the record that was just parsed; otherwise, it is an empty hash
   $self->{'_rec'} = { };
+  
+  # Count the number of lines in the main dictionary file so we know how
+  # to seek into the supplement
+  my $main_count = 0;
+  $self->{'_mr'}->rewind;
+  while ($self->{'_mr'}->file_index < 1) {
+    $main_count = $self->{'_mr'}->line_number;
+    ($self->{'_mr'}->advance) or
+      die "Failed to find end of main dictionary file, stopped";
+  }
+  
+  $self->{'_mr'}->rewind;
+  ($main_count > 0) or
+    die "Main dictionary file has no lines, stopped";
+  
+  # The '_mcount' property will be the maximum line number of the main
+  # dictionary file 
+  $self->{'_mcount'} = $main_count;
   
   # Return the new object
   return $self;
@@ -126,80 +187,19 @@ sub load {
 
 =back
 
-=head1 DESTRUCTOR
-
-The destructor for the parser object closes the file handle(s).
-
-=cut
-
-sub DESTROY {
-  # Get self
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  # Close the file handle(s)
-  if (exists $self->{'_fs'}) {
-    close($self->{'_fs'});
-  }
-  close($self->{'_fh'});
-}
-
 =head1 INSTANCE METHODS
 
 =over 4
 
-=item B<supplement($config_datasets)>
-
-Add supplementary definitions into the parser, such that the parser will
-act as if the supplementary definitions file is concatenated to the end
-of the dictionary file.
-
-Pass the C<config_datasets> variable defined in the C<SinoConfig>
-configuration file.  This will be used to locate the supplementary
-definitions file.
-
-If this function is called more than once, subsequent calls are ignored.
-
-=cut
-
-sub supplement {
-  
-  # Check parameter count
-  ($#_ == 1) or die "Wrong number of parameters, stopped";
-  
-  # Get self and parameter
-  my $self = shift;
-  (ref($self) and $self->isa(__PACKAGE__)) or
-    die "Wrong parameter type, stopped";
-  
-  my $dataset_folder = shift;
-  (not ref($dataset_folder)) or die "Wrong parameter type, stopped";
-  
-  # Ignore if supplement already opened
-  if (exists $self->{'_fs'}) {
-    return;
-  }
-  
-  # Get path to supplement file and check that it exists
-  my $supplement_path = $dataset_folder . 'extradfn.txt';
-  (-f $supplement_path) or
-    die "Can't find supplement file '$supplement_path', stopped";
-  
-  # Open the supplement file in UTF-8 mode with CR+LF translation
-  open(my $fs, "< :encoding(UTF-8) :crlf", $supplement_path) or
-    die "Can't open supplement file '$supplement_path', stopped";
-  
-  # Store supplement handle
-  $self->{'_fs'} = $fs;
-}
-
 =item B<rewind()>
 
 Rewind the data file back to the beginning and change the state of this
-parser to Beginning Of File (BOF).  This is also the initial state of
+parser to Beginning Of Stream (BOS).  This is also the initial state of
 the parser object after construction.  No record is currently loaded
 after calling this function.
+
+This rewinds back to the very beginning of the main dictionary file,
+even if you are currently in the supplement.
 
 =cut
 
@@ -213,15 +213,11 @@ sub rewind {
   (ref($self) and $self->isa(__PACKAGE__)) or
     die "Wrong parameter type, stopped";
   
-  # Rewind to beginning of file(s)
-  seek($self->{'_fh'}, 0, SEEK_SET) or die "Seek failed, stopped";
-  if (defined $self->{'_fs'}) {
-    seek($self->{'_fs'}, 0, SEEK_SET) or die "Seek failed, stopped";
-  }
+  # Rewind the underlying multifile
+  $self->{'_mr'}->rewind;
   
-  # Clear state to BOF
+  # Clear state to BOS
   $self->{'_state'  } =  -1;
-  $self->{'_linenum'} =   0;
   $self->{'_rec'    } = { };
 }
 
@@ -232,23 +228,25 @@ before a given line number, setting parser state to BOF.  Calling this
 with a value of 1 is equivalent to calling the rewind function.  No
 record is currently loaded after calling this function.
 
+You can use negative values to select line numbers in the supplement.
+-1 is the first line in the supplement, -2 is the second line, and so
+forth.
+
 First, this function performs a rewind operation.  Second, this function
 reads zero or more lines until either the current line number advances
-to one less than the given C<n> value, or EOF is reached.  When advance
+to one less than the given C<n> value, or EOS is reached.  When advance
 is called, it will act as though the first line of the file were the
 given line number.
 
-C<n> must be an integer greater than zero.  Note that if advance
-successfully reads a record, the line number of this record is I<not>
-necessarily the same as C<n>.  If C<n> refers to a comment line or a
-blank line, advance will read the next line that is not a comment or
-blank.
+C<n> must be an integer greater than zero or less than zero (if
+selecting a line in the supplement).  Note that if advance successfully
+reads a record, the line number of this record is I<not> necessarily the
+same as the line selected by C<n>.  If C<n> refers to a comment line or
+a blank line, advance will read the next line that is not a comment or
+blank, or may even go to EOS.
 
 This function is I<much> faster than just advancing over records,
 because this function will not parse any of the lines it is skipping.
-
-This function can't be used to seek to lines in the supplement, if a
-supplement is defined.
 
 =cut
 
@@ -266,22 +264,63 @@ sub seek {
   ((not ref($n)) and (int($n) == $n)) or
     die "Wrong parameter type, stopped";
   $n = int($n);
-  ($n > 0) or die "Parameter out of range, stopped";
+  (($n > 0) or ($n < 0)) or die "Parameter out of range, stopped";
   
   # Perform a rewind
   $self->rewind;
   
-  # Skip one less than the given line number, updating the line number
-  # count along the way
-  for(my $i = 1; $i < $n; $i++) {
-    # If we have reached EOF, then leave loop
-    (not eof($self->{'_fh'})) or last;
+  # Main flag will be set to one by default, or cleared if we are
+  # seeking into the supplement
+  my $main_flag = 1;
+  if ($n < 0) {
+    $main_flag = 0;
+  }
+  
+  # If n value is negative, then read through the main dictionary file
+  # until we have just read the last line and are about to read the
+  # first line of the supplement; then, set n to its absolute value
+  if ($n < 0) {
+    while ($self->{'_mr'}->line_number != $self->{'_mcount'}) {
+      ($self->{'_mr'}->advance) or die "Primary seeking error, stopped";
+    }
+    $n = 0 - $n;
+  }
+  
+  # If n is now 1, then we are in the correct position already, so do
+  # nothing further
+  if ($n == 1) {
+    return;
+  }
+  
+  # If we got here, then keep reading until either we are one less than
+  # the desired line number OR we reach "end state"; end state is file
+  # index no longer at zero if main flag is set, or EOS in underlying
+  # multifile if main flag is clear
+  my $found_it = 0;
+  while (1) {
+    # Begin by advancing to next line
+    unless ($self->{'_mr'}->advance) {
+      # We reached EOS, so leave loop
+      last;
+    }
     
-    # Read a line
-    defined(readline $self->{'_fh'}) or die "I/O error, stopped";
+    # If main flag is set and we reached the supplement, then leave loop
+    if ($main_flag and ($self->{'_mr'}->file_index > 0)) {
+      last;
+    }
     
-    # Increase the line count
-    $self->{'_linenum'} = $self->{'_linenum'} + 1;
+    # If we have reached one before desired n, then set found flag and
+    # leave loop
+    if ($self->{'_mr'}->line_number >= $n - 1) {
+      $found_it = 1;
+      last;
+    }
+  }
+  
+  # If we didn't find what we were looking for, keep reading until we
+  # hit EOS
+  unless ($found_it) {
+    while ($self->{'_mr'}->advance) { }
   }
 }
 
@@ -294,8 +333,8 @@ number of the record that was just read (where the first line is 1).
 After an advance operation that returns false, this will return the line
 number of the last line in the file.
 
-The behavior of line numbers is unreliable once you are into the
-supplement file, if a supplement file is defined.
+In the supplement file, line numbers will be negative.  -1 is first line
+in supplement file, -2 is second line, and so forth.
 
 =cut
 
@@ -309,8 +348,17 @@ sub line_number {
   (ref($self) and $self->isa(__PACKAGE__)) or
     die "Wrong parameter type, stopped";
   
-  # Return line number
-  return $self->{'_linenum'};
+  # Determine line number
+  my $result = $self->{'_mr'}->line_number;
+  
+  # If result is greater than zero and we are in supplement, make it
+  # negative
+  if (($result > 0) and ($self->{'_mr'}->file_index > 0)) {
+    $result = 0 - $result;
+  }
+  
+  # Return result
+  return $result;
 }
 
 =item B<advance()>
@@ -323,8 +371,11 @@ a rewind operation, no record is loaded, so you must call this function
 I<before> reading the first record in the dictionary.
 
 The return value is 1 if a new record was loaded, 0 if we have reached
-End Of File (EOF).  Once EOF is reached, subsequent calls to this
-function will return EOF until a rewind operation is performed.
+End Of Stream (EOS).  Once EOS is reached, subsequent calls to this
+function will return EOS until a rewind operation is performed.
+
+This function will also seamlessly read through the supplement file
+after reading through the main dictionary file.
 
 =cut
 
@@ -338,81 +389,43 @@ sub advance {
   (ref($self) and $self->isa(__PACKAGE__)) or
     die "Wrong parameter type, stopped";
   
-  # Handle special state -- if we are already EOF, then just return
+  # Handle special state -- if we are already EOS, then just return
   # false without proceeding further
   if ($self->{'_state'} > 0) {
-    # EOF
+    # EOS
     return 0;
   }
   
-  # Read lines until we get one that is neither a comment nor blank, or
-  # we reach EOF; if there is a supplement, we will span the search
-  # across the two files
+  # Read lines from the multifile until we get one that is neither blank
+  # nor a comment, or we hit End Of Stream (EOS)
   my $ltext = undef;
-  
-  for(my $x = 0; $x < 2; $x++) {
-    # Determine file handle to consult
-    my $fh;
-    if ($x == 0) {
-      $fh = $self->{'_fh'};
-    
-    } elsif ($x == 1) {
-      if (exists $self->{'_fs'}) {
-        $fh = $self->{'_fs'};
-      } else {
-        last;
-      }
+  while ($self->{'_mr'}->advance) {
+    $ltext = $self->{'_mr'}->text;
+    if ($ltext =~ /\A\s*\z/) {
+      # Blank line
+      $ltext = undef;
+      
+    } elsif ($ltext =~ /\A\s*#/) {
+      # Comment line
+      $ltext = undef;
       
     } else {
-      die "Unexpected";
-    }
-    
-    # Try finding a line with this file handle
-    while(not eof($fh)) {
-      # Read a line
-      defined($ltext = readline $fh) or
-        die "I/O error, stopped";
-      
-      # Increase the line count
-      $self->{'_linenum'} = $self->{'_linenum'} + 1;
-      
-      # Drop line break
-      chomp $ltext;
-      
-      # If this is the first line of the file or we are on any line of
-      # the supplement, drop any UTF-8 Byte Order Mark (BOM)
-      if (($self->{'_linenum'} == 1) or ($x > 0)) {
-        $ltext =~ s/\A\x{feff}//;
-      }
-      
-      # If this is a comment or blank line, set back to undef and
-      # continue on reading; otherwise, leave the loop
-      if (($ltext =~ /\A[ \t]*\z/) or ($ltext =~ /\A[ \t]*#/)) {
-        # Blank line or comment
-        $ltext = undef;
-      
-      } else {
-        # Found a line that is neither comment nor blank
-        last;
-      }
-    }
-    
-    # If we got a line, leave loop
-    if (defined $ltext) {
+      # Not a blank line and not a comment
       last;
     }
   }
   
-  # If we reached EOF, then set EOF state and return false
+  # If we hit EOS, then update state to EOS and return false
   unless (defined $ltext) {
-    $self->{'_state'} = 1;
+    # EOS reached
+    $self->{'_state'} =   1;
     $self->{'_rec'  } = { };
     return 0;
   }
   
   # If we got here, then we have a record line; begin by storing the
   # line number for use in error reports
-  my $lnum = $self->{'_linenum'};
+  my $lnum = $self->line_number;
   
   # Parse the basic structure of the record
   ($ltext =~ /\A
@@ -437,17 +450,9 @@ sub advance {
   my $pinyin = $3;
   my $defn   = $4;
   
-  # Trim Pinyin of leading and trailing whitespace
-  $pinyin =~ s/\A\s+//;
-  $pinyin =~ s/\s+\z//;
-  
-  # Make sure Pinyin after trimming is not empty
-  (length($pinyin) > 0) or
-    die "Dictionary line $lnum: Empty pinyin, stopped";
-  
-  # Split Pinyin into whitespace-separated tokens
-  my @pnys = split ' ', $pinyin;
-  ($#pnys >= 0) or die "Unexpected";
+  # Normalize Pinyin, or set to undef if this record has Pinyin that we
+  # can't normalize (which does happen)
+  $pinyin = cedict_pinyin($pinyin);
   
   # Trim definition of empty senses and whitespace at start and end
   $defn =~ s/\A[\s\/]+//;
@@ -490,13 +495,112 @@ sub advance {
     push @senses, (\@glosses);
   }
   
+  # Start an annotations hash for the main definition record
+  my %mannote = (
+    measures => [ ],
+    pronun   => [ ],
+    xref     => [ ]
+  );
+  
+  # Start an array that will contain annotated entry hashes
+  my @entries;
+  
+  # Now go through all the glosses, parsing them further with annotation
+  # processing, and building up both %mannote and @entries
+  my $sense_count = 0;
+  for my $sense (@senses) {
+    # Start sense processing by setting the first_gloss flag
+    my $first_gloss = 1;
+    
+    # Go through all the glosses in the sense
+    for my $cstr (@$sense) {
+      
+      # Get a copy of this component
+      my $str = $cstr;
+      
+      # Extract any measures
+      my @measures;
+      
+      my $retval = parse_measures($str);
+      if (defined $retval) {
+        $str = $retval->[0];
+        @measures = map { $_ } @{$retval->[1]};
+      }
+      
+      # Extract any pronunciations
+      my @pronun;
+      
+      $retval = extract_pronunciation($str);
+      if (defined $retval) {
+        $str = $retval->[0];
+        push @pronun, ([
+            $retval->[1],
+            $retval->[2],
+            $retval->[3]
+          ]);
+      }
+      
+      # Extract any cross-references
+      my @xref;
+      
+      $retval = extract_xref($str);
+      if (defined $retval) {
+        $str = $retval->[0];
+        push @xref, ([
+            $retval->[1],
+            $retval->[2],
+            $retval->[3],
+            $retval->[4]
+          ]);
+      }
+      
+      # If after all that parsing we ended up with an empty string, add
+      # any annotations to the main annotation hash; else, create a new
+      # entry with these annotations
+      if (length($str) > 0) {
+        # String is not empty after parsing annotations, so we are going
+        # to add an entry; if the first_gloss flag is set then increment
+        # the sense count and clear that flag
+        if ($first_gloss) {
+          $sense_count++;
+          $first_gloss = 0;
+        }
+        
+        # Push a new annotated entries hash to the entries array
+        push @entries, ({
+            sense    => $sense_count,
+            measures => \@measures,
+            pronun   => \@pronun,
+            xref     => \@xref,
+            text     => $str
+          });
+        
+      } else {
+        # String is empty after parsing annotations, so add any parsed
+        # annotations to the main entry annotations hash
+        for my $e (@measures) {
+          push @{$mannote{'measures'}}, ($e);
+        }
+        
+        for my $e (@pronun) {
+          push @{$mannote{'pronun'}}, ($e);
+        }
+        
+        for my $e (@xref) {
+          push @{$mannote{'xref'}}, ($e);
+        }
+      }
+    }
+  }
+  
   # If we got here, then update state and return true
   $self->{'_state'} = 0;
   $self->{'_rec'  } = {
     traditional => $trad,
     simplified  => $simp,
-    pinyin      => \@pnys,
-    senses      => \@senses
+    pinyin      => $pinyin,
+    mannote => \%mannote,
+    entries => \@entries
   };
   
   return 1;
@@ -560,8 +664,8 @@ sub simplified {
 
 =item B<pinyin()>
 
-Return each of the Pinyin syllables of the currently loaded dictionary
-record.  The return is a list in list context.
+Return the normalized Pinyin for this record, or C<undef> if the Pinyin
+could not be normalized.
 
 This may only be used after a successful call to the advance function.
 A fatal error occurs if this function is called in Beginning Of File
@@ -583,30 +687,33 @@ sub pinyin {
   ($self->{'_state'} == 0) or die "Invalid state, stopped";
   
   # Return desired information
-  return map { $_ } @{$self->{'_rec'}->{'pinyin'}};
+  return $self->{'_rec'}->{'pinyin'};
 }
 
-=item B<senses()>
+=item B<main_annote()>
 
-Return all the definitions of the currently loaded dictionary record.
-The return is a list in list context.  The elements of this list
-represent the separate senses of the word.  Each element is an array
-reference, and these subarrays store a sequence of gloss strings
-representing glosses for the sense.
-
-This function makes a copy of the arrays it returns, so modifying the
-arrays will not affect the state of the parser object.
-
-Note that CC-CEDICT stores various other kinds of information here, such
-as variant references, Taiwan Pinyin, and more.
+Return a reference to the main annotations hash for this record.
 
 This may only be used after a successful call to the advance function.
 A fatal error occurs if this function is called in Beginning Of File
 (BOF) or End Of File (EOF) state.
 
+The returned hash has three properties: C<measures> C<pronun> and
+C<xref>.  Each of these are array references.  The measures array stores
+subarrays consisting of the traditional han, simplified han, and
+optionally the normalized Pinyin.  The pronunciations array stores
+subarrays consisting of the context, a subarray of normalized Pinyin
+readings, and a condition.  The cross-references array stores subarrays
+consisting of the description, type, subarray, and suffix, where the
+subarray has further xref subarrays with traditional han, simplified
+han, and optionally normalized Pinyin.
+
+B<Note:> This is not a copy, so modifications to this hash update the
+main record state.
+
 =cut
 
-sub senses {
+sub main_annote {
   
   # Check parameter count
   ($#_ == 0) or die "Wrong number of parameters, stopped";
@@ -620,11 +727,43 @@ sub senses {
   ($self->{'_state'} == 0) or die "Invalid state, stopped";
   
   # Return desired information
-  return map {
-    my $ar = $_;
-    my @a = map { $_; } @$ar;
-    \@a;
-  } @{$self->{'_rec'}->{'senses'}};
+  return $self->{'_rec'}->{'mannote'};
+}
+
+=item B<entries()>
+
+Return a reference to the entries array for this record.
+
+This may only be used after a successful call to the advance function.
+A fatal error occurs if this function is called in Beginning Of File
+(BOF) or End Of File (EOF) state.
+
+Entries are each hash references.  They have properties C<measures>
+C<pronun> and C<xref> with the same format as for C<main_annote()>.
+They also have a C<sense> integer which gives the sense number this
+gloss belongs to and a C<text> integer which stores the text of the 
+gloss (without any annotations).
+
+B<Note:> This is not a copy, so modifications to this array update the
+main record state.
+
+=cut
+
+sub entries {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Check state
+  ($self->{'_state'} == 0) or die "Invalid state, stopped";
+  
+  # Return desired information
+  return $self->{'_rec'}->{'entries'};
 }
 
 =back
