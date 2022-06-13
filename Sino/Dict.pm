@@ -163,24 +163,6 @@ sub load {
   # of the record that was just parsed; otherwise, it is an empty hash
   $self->{'_rec'} = { };
   
-  # Count the number of lines in the main dictionary file so we know how
-  # to seek into the supplement
-  my $main_count = 0;
-  $self->{'_mr'}->rewind;
-  while ($self->{'_mr'}->file_index < 1) {
-    $main_count = $self->{'_mr'}->line_number;
-    ($self->{'_mr'}->advance) or
-      die "Failed to find end of main dictionary file, stopped";
-  }
-  
-  $self->{'_mr'}->rewind;
-  ($main_count > 0) or
-    die "Main dictionary file has no lines, stopped";
-  
-  # The '_mcount' property will be the maximum line number of the main
-  # dictionary file 
-  $self->{'_mcount'} = $main_count;
-  
   # Return the new object
   return $self;
 }
@@ -276,13 +258,10 @@ sub seek {
     $main_flag = 0;
   }
   
-  # If n value is negative, then read through the main dictionary file
-  # until we have just read the last line and are about to read the
-  # first line of the supplement; then, set n to its absolute value
+  # If n value is negative, then do a special rewindTo the start of the
+  # supplement and set n to its absolute value
   if ($n < 0) {
-    while ($self->{'_mr'}->line_number != $self->{'_mcount'}) {
-      ($self->{'_mr'}->advance) or die "Primary seeking error, stopped";
-    }
+    $self->{'_mr'}->rewindTo(1);
     $n = 0 - $n;
   }
   
