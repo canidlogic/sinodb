@@ -195,6 +195,23 @@ for my $entry (@{$dict->entries}) {
     }
   }
 
+  # Report any citations within this gloss and set annote flag if
+  # present
+  if (scalar(@{$entry->{'cites'}}) > 0) {
+    $has_annote = 1;
+    print "-- Citations --\n";
+    for my $cite (@{$entry->{'cites'}}) {
+      printf "(%d, %d) %s %s",
+          $cite->[0], $cite->[1], $cite->[2], $cite->[3];
+      
+      if (scalar(@$cite) >= 5) {
+        printf " %s\n", $cite->[4];
+      } else {
+        print "\n";
+      }
+    }
+  }
+
   # If there were any annotations, print ending banner
   if ($has_annote) {
     print "--- (end annotations) ---\n";
