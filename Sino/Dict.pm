@@ -7,7 +7,8 @@ use Sino::Util qw(
                 cedict_pinyin
                 parse_measures
                 extract_pronunciation
-                extract_xref);
+                extract_xref
+                parse_cites);
 
 =head1 NAME
 
@@ -76,6 +77,18 @@ Sino::Dict - Parse through the CC-CEDICT data file.
     for my $entry (@{$dict->entries}) {
       my $sense_number = $entry->{'sense'};
       my $gloss_text   = $entry->{'text'};
+      my $cites        = $entry->{'cites'};
+      for my $cite (@$cites) {
+        # Within $gloss_text:
+        my $starting_index = $cite->[0];
+        my $cite_length    = $cite->[1];
+        my $cite_trad      = $cite->[2];
+        my $cite_simp      = $cite->[3];
+        my $cite_pny;
+        if (scalar(@$cite) >= 5) {
+          $cite_pny = $cite->[4];
+        }
+      }
       
       # These properties same as the record-level annotation format
       my $gla_measures = $entry->{'measures'};
@@ -545,12 +558,16 @@ sub advance {
           $first_gloss = 0;
         }
         
+        # Get a citations array on the remaining gloss text
+        my @cites = parse_cites($str);
+        
         # Push a new annotated entries hash to the entries array
         push @entries, ({
             sense    => $sense_count,
             measures => \@measures,
             pronun   => \@pronun,
             xref     => \@xref,
+            cites    => \@cites,
             text     => $str
           });
         
