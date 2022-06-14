@@ -2,11 +2,13 @@
 use strict;
 use warnings;
 
-# Core dependencies
-use Encode qw(encode);
-
 # Sino imports
 use Sino::DB;
+use Sino::Multifile;
+use Sino::Op qw(
+                string_to_db
+                wordid_new
+                enter_han);
 use SinoConfig;
 
 =head1 NAME
@@ -24,50 +26,13 @@ This script is used to import supplemental words into a Sino database.
 The supplemental datafile C<level9.txt> is consulted, and all headwords
 there are added as words into the C<word> and C<han> tables, with each
 headword being a separate word and the wordlevel of each being set to 9.
+This script verifies that none of the headwords in C<level9.txt> are
+already in the database, failing if any are already present.
 
 See C<config.md> in the C<doc> directory for configuration you must do
 before using this script.
 
 =cut
-
-# ===============
-# Local functions
-# ===============
-
-# wordid_new(dbc)
-#
-# Given a Sino::DB database connection, figure out a new word ID to use.
-# A race will occur unless you call this function in a work block that
-# is already open.
-#
-sub wordid_new {
-  # Get and check parameter
-  ($#_ == 0) or die "Wrong parameter count, stopped";
-  my $dbc = shift;
-  (ref($dbc) and $dbc->isa('Sino::DB')) or
-    die "Wrong parameter type, stopped";
-  
-  # Start a read work block
-  my $dbh = $dbc->beginWork('r');
-  
-  # Find the maximum word ID currently in use
-  my $wordid = $dbh->selectrow_arrayref(
-                      'SELECT wordid FROM word ORDER BY wordid DESC');
-  
-  # If we got any word records, return one greater than the greatest
-  # one, else return 1 for the first word record
-  if (ref($wordid) eq 'ARRAY') {
-    $wordid = $wordid->[0] + 1;
-  } else {
-    $wordid = 1;
-  }
-  
-  # If we got here, finish the read work block
-  $dbc->finishWork;
-  
-  # Return result
-  return $wordid;
-}
 
 # ==================
 # Program entrypoint
@@ -83,6 +48,7 @@ binmode(STDERR, ":encoding(UTF-8)") or
 ($#ARGV < 0) or die "Not expecting program arguments, stopped";
 
 # Get path to level9.txt data file
+#
 my $level9_path = $config_datasets . 'level9.txt';
 
 # Check that level9.txt data file exists
@@ -90,47 +56,9 @@ my $level9_path = $config_datasets . 'level9.txt';
 (-f $level9_path) or
   die "Can't find level9 file '$level9_path', stopped";
 
-# Open for reading in UTF-8 with CR+LF conversion, and read all
-# non-blank lines into a headword array
+# Open a multifile reader on the level9.txt data file
 #
-open(my $fh, "< :encoding(UTF-8) :crlf", $level9_path) or
-  die "Failed to open '$level9_path', stopped";
-
-# Now read line-by-line
-#
-my @hwords;
-my $lnum = 0;
-while (not eof($fh)) {
-  # Increment line number
-  $lnum++;
-  
-  # Read a line
-  my $ltext = readline($fh);
-  (defined $ltext) or die "I/O error, stopped";
-  
-  # Drop line break
-  chomp $ltext;
-  
-  # If very first line, drop any UTF-8 BOM
-  if ($lnum == 1) {
-    $ltext =~ s/\A\x{feff}//;
-  }
-  
-  # Ignore line if blank
-  (not ($ltext =~ /\A\s*\z/)) or next;
-  
-  # Parse headword
-  ($ltext =~ /\A\s*([\p{Lo}]+)\s*\z/) or
-    die "level9.txt line $lnum: Invalid record, stopped";
-  my $hword = $1;
-  
-  # Add headword to array
-  push @hwords, ($hword);
-}
-
-# Close the datafile
-#
-close($fh);
+my $mr = Sino::Multifile->load([$level9_path]);
 
 # Open database connection to existing database
 #
@@ -140,13 +68,26 @@ my $dbc = Sino::DB->connect($config_dbpath, 0);
 #
 my $dbh = $dbc->beginWork('rw');
 
-# Add all headwords if not already present
+# Add all new headwords, checking they are not already present
 #
-for my $hword (@hwords) {
+while ($mr->advance) {
   
-  # Get encoded version
-  my $hword_enc = encode('UTF-8', $hword,
-                          Encode::FB_CROAK | Encode::LEAVE_SRC);
+  # Get line number for diagnostics
+  my $lnum = $mr->line_number;
+  
+  # Get line just read
+  my $ltext = $mr->text;
+  
+  # Ignore line if blank
+  (not ($ltext =~ /\A\s*\z/)) or next;
+  
+  # Parse headword
+  ($ltext =~ /\A\s*([\x{4e00}-\x{9fff}]+)\s*\z/) or
+    die "level9.txt line $lnum: Invalid record, stopped";
+  my $hword = $1;
+  
+  # Get binary string version
+  my $hword_enc = string_to_db($hword);
   
   # Verify that not already in table
   my $qr = $dbh->selectrow_arrayref(
@@ -165,9 +106,7 @@ for my $hword (@hwords) {
             $word_id, 9);
   
   # Add the Han reading for this word
-  $dbh->do('INSERT INTO han(wordid, hanord, hantrad) VALUES (?,?,?)',
-            undef,
-            $word_id, 1, $hword_enc);
+  enter_han($dbc, $word_id, $hword_enc);
 }
 
 # If we got here, commit all our changes as a single transaction
