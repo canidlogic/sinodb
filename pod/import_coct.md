@@ -9,23 +9,21 @@ import\_coct.pl - Import data from COCT into the Sino database.
 # DESCRIPTION
 
 This script is used to supplement a Sino database with words from the
-COCT vocabulary data files.  This script should be your third step after
-using `import_tocfl.pl` to import all the TOCFL words.
+COCT vocabulary data file.  This script should be run after using
+`import_tocfl.pl` to import all the TOCFL words.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
 
-There must be at least one word already defined.  This script will
-expand each word in the COCT vocabulary list into all its Han variant
-forms.  If any of the variant forms are already in the Sino database,
-the whole COCT word is skipped.  Otherwise, it is added as a new word
-into the database, with all of the Han readings, and at a level one
-greater than the level in the COCT data file (since COCT levels are one
-higher than TOCFL).
+There must be at least one word already defined in the database.  This
+script will parse through the COCT vocabulary list.  Only records where
+_all_ headwords are not already in the database will be added; if any
+of the variant forms are already in the Sino database, the whole COCT
+record is skipped.  COCT levels are increased by one before adding into
+the database, since COCT levels are one greater than TOCFL levels.
 
-Also, this script will skip all COCT records where _all_ headwords are
-on the blocklist as defined by the `parse_blocklist` function of
-`Sino::Util`.
+Since `Sino::COCT` is used as the parser, the blocklist will be
+transparently applied.
 
 # AUTHOR
 
