@@ -7,6 +7,7 @@ The `Sino` directory holding these Perl modules must be in the include path when
 - `DB.pm` - Handles connection to Sino SQLite database
 - `Dict.pm` - Parses the CC-CEDICT data file
 - `Multifile.pm` - Reads through file sequences
+- `Op.pm` - Common Sino database operations
 - `TOCFL.pm` - Parses the TOCFL data files
 - `Util.pm` - Various utility functions
 
