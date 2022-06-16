@@ -8,7 +8,9 @@ our @EXPORT_OK = qw(
                   wordid_new
                   enter_han
                   enter_wordclass
-                  enter_pinyin);
+                  enter_pinyin
+                  enter_ref
+                  enter_atom);
 
 # Core dependencies
 use Encode qw(decode encode);
@@ -28,7 +30,9 @@ Sino::Op - Sino database operations module.
         wordid_new
         enter_han
         enter_wordclass
-        enter_pinyin);
+        enter_pinyin
+        enter_ref
+        enter_atom);
   
   # Convert Unicode string to binary format needed for SQLite
   my $database_string = string_to_db($unicode_string);
@@ -55,6 +59,14 @@ Sino::Op - Sino database operations module.
   
   # Enter a Pinyin reading of a specific Han reading
   enter_pinyin($dbc, $han_id, $pinyin);
+  
+  # Enter a reference in the ref table if it doesn't already exist, and
+  # in all cases return the refid for the reference
+  my $ref_id = enter_ref($dbc, $trad, $simp, $pinyin);
+  
+  # Enter an atom if it doesn't already exist, and in all cases return
+  # the atmid for the atom
+  my $atom_id = enter_atom($dbc, 'example');
 
 =head1 DESCRIPTION
 
@@ -431,6 +443,191 @@ sub enter_pinyin {
   
   # Finish the work block if we got here
   $dbc->finishWork;
+}
+
+=item B<enter_ref(dbc, trad, simp, pinyin)>
+
+Given a C<Sino::DB> database connection, a traditional Han reading, a
+simplified Han reading, and optionally a Pinyin reading, enter this
+reference in the ref table if not already present, and in all cases
+return a C<refid> corresponding to the given reference. 
+
+C<trad> C<simp> and C<pinyin> should be Unicode strings, not a binary
+strings.  C<pinyin> may also be C<undef> for cases where a Pinyin 
+reading isn't part of the reference, or where a main entry has Pinyin
+that doesn't normalize.  If traditional and simplified readings are the
+same, pass the same string for both parameters.  Traditional and
+simplified readings may only include characters from the core CJK
+Unicode block.  The given C<pinyin> must pass C<pinyin_split> in
+C<Sino::Util> to verify that it is normalized (unless it is C<undef>).
+
+A r/w work block will start in this function, so don't call this
+function within a read-only block.
+
+=cut
+
+sub enter_ref {
+  # Get and check parameters
+  ($#_ == 3) or die "Wrong parameter count, stopped";
+  
+  my $dbc = shift;
+  (ref($dbc) and $dbc->isa('Sino::DB')) or
+    die "Wrong parameter type, stopped";
+  
+  my $trad   = shift;
+  my $simp   = shift;
+  my $pinyin = shift;
+  
+  ((not ref($trad)) and (not ref($simp))) or
+    die "Wrong parameter type, stopped";
+  
+  ($trad =~ /\A[\x{4e00}-\x{9fff}]+\z/) or
+    die "Invalid Han characters in reference, stopped";
+  ($simp =~ /\A[\x{4e00}-\x{9fff}]+\z/) or
+    die "Invalid Han characters in reference, stopped";
+  
+  if (defined $pinyin) {
+    (not ref($pinyin)) or die "Wrong parameter type, stopped";
+    pinyin_split($pinyin);
+  }
+  
+  # Encode parameters binary
+  $trad = string_to_db($trad);
+  $simp = string_to_db($simp);
+  if (defined $pinyin) {
+    $pinyin = string_to_db($pinyin);
+  }
+  
+  # Start a read/write work block
+  my $dbh = $dbc->beginWork('rw');
+  
+  # Find whether the given reference already exists
+  my $qr;
+  if (defined $pinyin) {
+    $qr = $dbh->selectrow_arrayref(
+                  'SELECT refid FROM ref '
+                  . 'WHERE reftrad=? AND refsimp=? AND refpny=?',
+                  undef,
+                  $trad, $simp, $pinyin);
+  } else {
+    $qr = $dbh->selectrow_arrayref(
+                  'SELECT refid FROM ref '
+                  . 'WHERE reftrad=? AND refsimp=? AND refpny ISNULL',
+                  undef,
+                  $trad, $simp);
+  }
+  
+  # Proceed depending whether record already exists
+  my $ref_id;
+  if (ref($qr) eq 'ARRAY') {
+    # Reference already exists, so just use the existing ref_id
+    $ref_id = $qr->[0];
+    
+  } else {
+    # Reference doesn't already exist, so get one beyond current maximum
+    # reference ID, or 1 if no references yet
+    $ref_id = 1;
+    $qr = $dbh->selectrow_arrayref(
+                  'SELECT refid FROM ref ORDER BY refid DESC');
+    if (ref($qr) eq 'ARRAY') {
+      $ref_id = $qr->[0] + 1;
+    }
+    
+    # Insert new reference into table
+    if (defined $pinyin) {
+      $dbh->do(
+          'INSERT INTO ref(refid, reftrad, refsimp, refpny) '
+          . 'VALUES (?, ?, ?, ?)',
+          undef,
+          $ref_id, $trad, $simp, $pinyin);
+    
+    } else {
+      $dbh->do(
+          'INSERT INTO ref(refid, reftrad, refsimp) '
+          . 'VALUES (?, ?, ?)',
+          undef,
+          $ref_id, $trad, $simp);
+    }
+  }
+  
+  # Finish the work block if we got here
+  $dbc->finishWork;
+  
+  # Return the ref_id
+  return $ref_id;
+}
+
+=item B<enter_atom(dbc, str)>
+
+Given a C<Sino::DB> database connection and a string, enter the string
+in the atom table if not already present and in all cases return a
+C<atmid> corresponding to the appropriate atom record.
+
+C<str> should be a Unicode string, not a binary string.  It may contain
+any Unicode codepoints except for ASCII control codes and surrogates.
+(Supplemental codepoints are OK.)  An empty string I<is> an acceptable
+atom string.
+
+A r/w work block will start in this function, so don't call this
+function within a read-only block.
+
+=cut
+
+sub enter_atom {
+  # Get and check parameters
+  ($#_ == 1) or die "Wrong parameter count, stopped";
+  
+  my $dbc = shift;
+  (ref($dbc) and $dbc->isa('Sino::DB')) or
+    die "Wrong parameter type, stopped";
+  
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  ($str =~ /\A[\x{20}-\x{7e}\x{80}-\x{d7ff}\x{e000}-\x{10ffff}]*\z/) or
+    die "Invalid codepoints in atom string, stopped";
+  
+  # Encode string binary
+  $str = string_to_db($str);
+  
+  # Start a read/write work block
+  my $dbh = $dbc->beginWork('rw');
+  
+  # Find whether the given atom already exists
+  my $qr;
+  $qr = $dbh->selectrow_arrayref(
+                'SELECT atmid FROM atm WHERE atmval=?',
+                undef,
+                $str);
+  
+  # Proceed depending whether record already exists
+  my $atom_id;
+  if (ref($qr) eq 'ARRAY') {
+    # Atom already exists, so just use the existing atom_id
+    $atom_id = $qr->[0];
+    
+  } else {
+    # Atom doesn't already exist, so get one beyond current maximum atom
+    # ID, or 1 if no atoms yet
+    $atom_id = 1;
+    $qr = $dbh->selectrow_arrayref(
+                  'SELECT atmid FROM atm ORDER BY atmid DESC');
+    if (ref($qr) eq 'ARRAY') {
+      $atom_id = $qr->[0] + 1;
+    }
+    
+    # Insert new atom into table
+    $dbh->do(
+        'INSERT INTO atm(atmid, atmval) VALUES (?, ?)',
+        undef,
+        $atom_id, $str);
+  }
+  
+  # Finish the work block if we got here
+  $dbc->finishWork;
+  
+  # Return the atom_id
+  return $atom_id;
 }
 
 =back
