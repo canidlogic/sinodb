@@ -40,6 +40,11 @@ Sino::Dict - Parse through the CC-CEDICT data file.
     # Pinyin or undef if couldn't normalize
     my $pinyin = $dict->pinyin;
     
+    # Check whether this record is for a proper name
+    if ($dict->is_proper) {
+      ...
+    }
+    
     # Record-level annotations
     my $rla = $dict->main_annote;
     for my $measure ($rla->{'measures'}) {
@@ -442,6 +447,13 @@ sub advance {
   my $pinyin = $3;
   my $defn   = $4;
   
+  # Determine whether this is a proper name record, by checking whether
+  # the Pinyin before normalization has any uppercase syllables
+  my $proper_name = 0;
+  if ($pinyin =~ /[A-Z][a-z:]*[1-5]/) {
+    $proper_name = 1;
+  }
+  
   # Normalize Pinyin, or set to undef if this record has Pinyin that we
   # can't normalize (which does happen)
   $pinyin = cedict_pinyin($pinyin);
@@ -595,8 +607,9 @@ sub advance {
     traditional => $trad,
     simplified  => $simp,
     pinyin      => $pinyin,
-    mannote => \%mannote,
-    entries => \@entries
+    proper_name => $proper_name,
+    mannote     => \%mannote,
+    entries     => \@entries
   };
   
   return 1;
@@ -684,6 +697,39 @@ sub pinyin {
   
   # Return desired information
   return $self->{'_rec'}->{'pinyin'};
+}
+
+=item B<is_proper()>
+
+Return 1 if this record is for a proper name, 0 otherwise.
+
+This may only be used after a successful call to the advance function.
+A fatal error occurs if this function is called in Beginning Of File
+(BOF) or End Of File (EOF) state.
+
+To determine whether a record is for a proper name, this parser checks
+whether the original Pinyin before normalization had any uppercase
+syllables, where an uppercase syllable is defined as an uppercase ASCII
+letter, followed by zero or more lowercase ASCII letters and colons,
+followed by a decimal digit 1-5.
+
+=cut
+
+sub is_proper {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get self
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or
+    die "Wrong parameter type, stopped";
+  
+  # Check state
+  ($self->{'_state'} == 0) or die "Invalid state, stopped";
+  
+  # Return desired information
+  return $self->{'_rec'}->{'proper_name'};
 }
 
 =item B<main_annote()>
