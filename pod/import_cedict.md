@@ -11,35 +11,41 @@ import\_cedict.pl - Import data from CC-CEDICT into the Sino database.
 This script is used to fill a Sino database with information derived
 from the CC-CEDICT data file.  
 
-This script should be your fifth step after using `createdb.pl` to
-create an empty Sino database, `import_tocfl.pl` to add the TOCFL
-data, `import_coct.pl` to add the COCT data, and `import_extra.pl` to
-add supplemental words.  You must have at least one word defined already
-in the database or this script will fail.
+You should only use this script after you've added all words with the
+other import scripts.  This script will only add definitions for words
+that already exist in the database.  You must have at least one word
+defined already in the database or this script will fail.
 
-This iterates through every record in CC-CEDICT in two passes.  In the
-first pass, for each record, check whether its traditional character
-rendering matches something in the `han` table.  If it does, then the
-record data will be imported and linked properly within the Sino
-database.
+This script performs four passes through the CC-CEDICT database.  Each
+pass it only examines certain types of CC-CEDICT records, and each pass
+it only processes records for which the headword is not already defined
+in the database.  In this way, the passes are a fallback system, where
+records from pass two are only imported for words that were not handled
+in pass one, records from pass three are only imported for words that
+were not handled in passes one and two, and records from pass four are
+only imported for words that were not handled in passes one, two, and
+three.  The four passes have the following characteristics:
 
-The supplementary definitions is used, so that supplementary definitions
-will be imported by this script if relevant.
+     Pass | CC-CEDICT matching | Entry type
+    ======+====================+============
+       1  |    traditional     |   common
+       2  |    simplified      |   common
+       3  |    traditional     |   proper
+       4  |    simplified      |   proper
 
-In the second pass, check for the situation of words that didn't get any
-entry in the `mpy` table after the first pass because their Han
-rendering is recorded in the CC-CEDICT data file as a simplified
-rendering rather than a traditional one.  Go through the CC-CEDICT
-again, but this time check whether the CC-CEDICT's record _simplified_
-rendering matches something in the `han` table _and_ that whatever it
-matches either belongs to a word for which there are no `dfn` records
-for any of its Han renderings yet or the word is recorded in the
-simplified words hash.  Add glosses of such records to the database, and
-also add the word to the simplified words hash so that other simplified
-records matching it can be picked up.
+With this scheme, CC-CEDICT records for proper names (that is, where the
+original CC-CEDICT Pinyin contains at least one uppercase ASCII letter)
+are not consulted for words unless all attempts to find definitions
+amongst records that are not proper names have failed.  Also, if
+matching against traditional Han readings in the CC-CEDICT fails,
+matching against simplified Han readings will then be attempted as a
+fallback, to handle cases where the TOCFL/COCT headwords use a rendering
+that CC-CEDICT considers to be simplified.
 
-At the end of the script, the IDs of all of the simplified words that
-were used in the second pass are reported.
+Since this is a long process, regular progress reports are printed out
+on standard error as the script is running.  At the end, a summary
+screen is printed on standard output, indicating how many records were
+added in each pass.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
