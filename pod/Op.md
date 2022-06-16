@@ -10,7 +10,9 @@ Sino::Op - Sino database operations module.
           wordid_new
           enter_han
           enter_wordclass
-          enter_pinyin);
+          enter_pinyin
+          enter_ref
+          enter_atom);
     
     # Convert Unicode string to binary format needed for SQLite
     my $database_string = string_to_db($unicode_string);
@@ -37,6 +39,14 @@ Sino::Op - Sino database operations module.
     
     # Enter a Pinyin reading of a specific Han reading
     enter_pinyin($dbc, $han_id, $pinyin);
+    
+    # Enter a reference in the ref table if it doesn't already exist, and
+    # in all cases return the refid for the reference
+    my $ref_id = enter_ref($dbc, $trad, $simp, $pinyin);
+    
+    # Enter an atom if it doesn't already exist, and in all cases return
+    # the atmid for the atom
+    my $atom_id = enter_atom($dbc, 'example');
 
 # DESCRIPTION
 
@@ -120,6 +130,39 @@ the individual functions for further information.
     a fatal error occurs.  The given Han ID must exist in the han table or a
     fatal error occurs.  A r/w work block will start in this function, so
     don't call this function within a read-only block.
+
+- **enter\_ref(dbc, trad, simp, pinyin)**
+
+    Given a `Sino::DB` database connection, a traditional Han reading, a
+    simplified Han reading, and optionally a Pinyin reading, enter this
+    reference in the ref table if not already present, and in all cases
+    return a `refid` corresponding to the given reference. 
+
+    `trad` `simp` and `pinyin` should be Unicode strings, not a binary
+    strings.  `pinyin` may also be `undef` for cases where a Pinyin 
+    reading isn't part of the reference, or where a main entry has Pinyin
+    that doesn't normalize.  If traditional and simplified readings are the
+    same, pass the same string for both parameters.  Traditional and
+    simplified readings may only include characters from the core CJK
+    Unicode block.  The given `pinyin` must pass `pinyin_split` in
+    `Sino::Util` to verify that it is normalized (unless it is `undef`).
+
+    A r/w work block will start in this function, so don't call this
+    function within a read-only block.
+
+- **enter\_atom(dbc, str)**
+
+    Given a `Sino::DB` database connection and a string, enter the string
+    in the atom table if not already present and in all cases return a
+    `atmid` corresponding to the appropriate atom record.
+
+    `str` should be a Unicode string, not a binary string.  It may contain
+    any Unicode codepoints except for ASCII control codes and surrogates.
+    (Supplemental codepoints are OK.)  An empty string _is_ an acceptable
+    atom string.
+
+    A r/w work block will start in this function, so don't call this
+    function within a read-only block.
 
 # AUTHOR
 
