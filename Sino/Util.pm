@@ -1503,7 +1503,7 @@ sub extract_xref {
     \x{1b}
   )?
   ,?
-  (.*)
+  ([^\x{1a}\x{1b}]*)
   \z
 /xi) {
     return undef;
