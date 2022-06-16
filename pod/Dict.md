@@ -28,6 +28,11 @@ Sino::Dict - Parse through the CC-CEDICT data file.
       # Pinyin or undef if couldn't normalize
       my $pinyin = $dict->pinyin;
       
+      # Check whether this record is for a proper name
+      if ($dict->is_proper) {
+        ...
+      }
+      
       # Record-level annotations
       my $rla = $dict->main_annote;
       for my $measure ($rla->{'measures'}) {
@@ -216,6 +221,20 @@ before using this module.
     This may only be used after a successful call to the advance function.
     A fatal error occurs if this function is called in Beginning Of File
     (BOF) or End Of File (EOF) state.
+
+- **is\_proper()**
+
+    Return 1 if this record is for a proper name, 0 otherwise.
+
+    This may only be used after a successful call to the advance function.
+    A fatal error occurs if this function is called in Beginning Of File
+    (BOF) or End Of File (EOF) state.
+
+    To determine whether a record is for a proper name, this parser checks
+    whether the original Pinyin before normalization had any uppercase
+    syllables, where an uppercase syllable is defined as an uppercase ASCII
+    letter, followed by zero or more lowercase ASCII letters and colons,
+    followed by a decimal digit 1-5.
 
 - **main\_annote()**
 
