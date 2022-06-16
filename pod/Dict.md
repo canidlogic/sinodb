@@ -35,7 +35,7 @@ Sino::Dict - Parse through the CC-CEDICT data file.
       
       # Record-level annotations
       my $rla = $dict->main_annote;
-      for my $measure ($rla->{'measures'}) {
+      for my $measure (@{$rla->{'measures'}}) {
         my $trad = $measure->[0];
         my $simp = $measure->[1];
         my $pny;
@@ -44,7 +44,7 @@ Sino::Dict - Parse through the CC-CEDICT data file.
         }
         ...
       }
-      for my $pr ($rla->{'pronun'}) {
+      for my $pr (@{$rla->{'pronun'}}) {
         my $pr_context = $pr->[0];
         for my $pny (@{$pr->[1]}) {
           ...
@@ -52,7 +52,7 @@ Sino::Dict - Parse through the CC-CEDICT data file.
         my $pr_condition = $pr->[2];
         ...
       }
-      for my $xref ($rla->{'xref'}) {
+      for my $xref (@{$rla->{'xref'}}) {
         my $xr_description = $xref->[0];
         my $xr_type        = $xref->[1];
         for my $xrr (@{$xref->[2]}) {
