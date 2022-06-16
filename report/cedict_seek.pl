@@ -69,6 +69,12 @@ if (defined $dict->pinyin) {
   print "< Pinyin can't be normalized >\n";
 }
 
+# If proper name, report that
+#
+if ($dict->is_proper) {
+  print "Proper name record\n";
+}
+
 # Report any record-level annotations
 #
 my $rla = $dict->main_annote;
