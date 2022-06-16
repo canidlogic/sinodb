@@ -1426,6 +1426,23 @@ sub extract_xref {
           \z
           /abbr\. for \x{1a}, $1/xgi;
   
+  $str =~ s/
+          \A
+          \s*
+          used
+          \s+
+          with
+          \s*
+          \x{1a}
+          ,
+          \s*
+          \x{1b}
+          \s*
+          etc
+          \s*
+          \z
+          /used with \x{1a} and \x{1b}, etc/xgi;
+  
   # Apply exceptional substitutions
   $str =~ s/
           \A
