@@ -2,11 +2,9 @@
 use strict;
 use warnings;
 
-# Core dependencies
-use Encode qw(decode);
-
 # Sino imports
 use Sino::DB;
+use Sino::Op qw(db_to_string);
 use SinoConfig;
 
 =head1 NAME
@@ -20,6 +18,7 @@ glosses for any of their Han renderings.
   ./nogloss.pl -min 4
   ./nogloss.pl -max 2
   ./nogloss.pl -multi
+  ./nogloss.pl -redir
   ./nogloss.pl -level 1-6
   ./nogloss.pl -han
 
@@ -33,6 +32,9 @@ gloss are reported.
 
 The C<-multi> option, if provided, specifies that only records that have
 at least two Han renderings should be checked.
+
+The C<-redir> option, if provided, considers having a cross-reference
+annotation to count as having a gloss.
 
 The C<-level> option, if specified, specifies that only records that
 have a word level in the given range are considered.
@@ -71,6 +73,7 @@ my $min_filter   = undef;
 my $max_filter   = undef;
 my $level_min    = undef;
 my $level_max    = undef;
+my $redir_flag   = 0;
 my $multi_flag   = 0;
 my $han_flag     = 0;
 
@@ -114,6 +117,9 @@ for(my $i = 0; $i <= $#ARGV; $i++) {
   
   } elsif ($ARGV[$i] eq '-multi') {
     $multi_flag = 1;
+    
+  } elsif ($ARGV[$i] eq '-redir') {
+    $redir_flag = 1;
     
   } elsif ($ARGV[$i] eq '-han') {
     $han_flag = 1;
@@ -178,10 +184,7 @@ for my $word_id (@word_list) {
   if (ref($qr) eq 'ARRAY') {
     for my $r (@$qr) {
       push @hans, ( $r->[0] );
-      push @hantrads, ( 
-        decode('UTF-8', $r->[1],
-                Encode::FB_CROAK | Encode::LEAVE_SRC)
-      );
+      push @hantrads, (db_to_string($r->[1]));
     }
   }
   
@@ -229,7 +232,8 @@ for my $word_id (@word_list) {
     }
     
     # Look for if there is at least one mpyid that has at least one
-    # gloss
+    # gloss; if redir flag is set, also set the flag if there is at
+    # least one mpyid that has a cross-reference annotation
     for my $mpy_id (@mopys) {
       
       # Check whether there is a gloss
@@ -242,6 +246,18 @@ for my $word_id (@word_list) {
       if (ref($qr) eq 'ARRAY') {
         $has_gloss = 1;
         last;
+      }
+      
+      # If redir flag set, check whether there is a cross-reference
+      if ($redir_flag) {
+        $qr = $dbh->selectrow_arrayref(
+                'SELECT xrmid FROM xrm WHERE mpyid=?',
+                undef,
+                $mpy_id);
+        if (ref($qr) eq 'ARRAY') {
+          $has_gloss = 1;
+          last;
+        }
       }
     }
     
