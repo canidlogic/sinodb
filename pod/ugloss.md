@@ -1,33 +1,21 @@
 # NAME
 
-ugloss.pl - Report all glosses that contain Unicode beyond ASCII range
-or square brackets, and the words they belong to.
+ugloss.pl - Report all glosses that contain non-citation Unicode beyond
+ASCII range or square brackets, and the words they belong to.
 
 # SYNOPSIS
 
     ./ugloss.pl
-    ./ugloss.pl -nocl
-    ./ugloss.pl -nopk
-    ./ugloss.pl -noxref
     ./ugloss.pl -wordid
 
 # DESCRIPTION
 
-This script reads through all glosses.  Any gloss that contains any
-character outside the range \[U+0020, U+007E\], and any gloss that
-contains ASCII square brackets, is printed to output, along with the
-word ID the gloss belongs to.
-
-The `-nocl` option ignores any gloss that matches a classifier gloss,
-as determined by the `parse_measures` function of `Sino::Util`.
-
-The `-nopk` option uses the `extract_pronunciation` function of
-`Sino::Util` on glosses before they are examined, so that alternate
-pronunciations won't be included in the reported list.
-
-The `-noxref` option uses the `extract_xref` function of `Sino::Util`
-on glosses before they are examined, so that cross-references won't be
-included in the reported list.
+This script scans through all glosses in the `dfn` table.  For each
+gloss, all codepoints are examined that are not part of any citation.
+If any of these codepoints are outside the range \[U+0020, U+007E\], or if
+any of these codepoints are ASCII square brackets, the gloss is printed
+(with citations removed) to output, along with the word ID the gloss
+belongs to.
 
 The `-wordid` causes only a list of word IDs to be reported, rather
 than glosses with word IDs.
