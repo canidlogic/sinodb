@@ -7,6 +7,7 @@ use Encode qw(decode);
 
 # Sino imports
 use Sino::DB;
+use Sino::Op qw(words_xml);
 use SinoConfig;
 
 =head1 NAME
@@ -16,15 +17,18 @@ wordquery.pl - List all information about particular words.
 =head1 SYNOPSIS
 
   ./wordquery.pl 526 1116 2561 4195
-  ./wordquery.pl -
+  ./wordquery.pl
 
 =head1 DESCRIPTION
 
 This script reports all information about words with given ID numbers.
 You can either pass the ID numbers directly as one or more program
-arguments, or you can pass C<-> as the sole argument and the script will
-read the ID numbers from standard input, with one word ID per line
-(especially useful as a pipeline target for other scripts).
+arguments, or you can pass no arguments and the script will read the ID
+numbers from standard input, with one word ID per line (especially
+useful as a pipeline target for other scripts).
+
+The information returned about the words is in the descriptive XML
+format documented in the C<Sino::Op> module.
 
 See C<config.md> in the C<doc> directory for configuration you must do
 before using this script.
@@ -43,7 +47,8 @@ binmode(STDOUT, ":encoding(UTF-8)") or
 # Handle the different invocations
 #
 my @word_list;
-if (($#ARGV == 0) and ($ARGV[0] eq '-')) { # ===========================
+
+if ($#ARGV < 0) { # ====================================================
   # Read from standard input
   my $line_num = 0;
   while (not eof(STDIN)) {
@@ -69,7 +74,7 @@ if (($#ARGV == 0) and ($ARGV[0] eq '-')) { # ===========================
     push @word_list, ($word_id);
   }
   
-} elsif ($#ARGV >= 0) { # ==============================================
+} else { # =============================================================
   # Read directly from program arguments
   for my $arg (@ARGV) {
     # Check format and parse
@@ -80,18 +85,6 @@ if (($#ARGV == 0) and ($ARGV[0] eq '-')) { # ===========================
     # Add to array
     push @word_list, ($word_id);
   }
-  
-} else { # =============================================================
-  # No arguments, print syntax summary
-  print { \*STDERR } q{Syntax:
-
-  wordquery.pl [id_1] [id_2] ... [id_n]
-  wordquery.pl -
-
-Pass a sequence of word IDs, either directly or on standard input with
-the second invocation
-};
-  exit;
 }
 
 # Make sure we got at least one word
@@ -102,185 +95,13 @@ the second invocation
 #
 my $dbc = Sino::DB->connect($config_dbpath, 0);
 
-# Start a read transaction for everything
+# Get the full XML report
 #
-my $dbh = $dbc->beginWork('r');
+my $xml = words_xml($dbc, \@word_list);
 
-# Report each word
+# Print the report
 #
-for my $word_id (@word_list) {
-  # Print header
-  print "=== Word $word_id:\n\n";
-  
-  # Look up the basic word record
-  my $qr = $dbh->selectrow_arrayref(
-              'SELECT wordlevel FROM word WHERE wordid=?',
-              undef,
-              $word_id);
-  
-  # If word not found, report that and skip rest of processing
-  unless (ref($qr) eq 'ARRAY') {
-    print "No records found.\n\n";
-    next;
-  }
-  
-  # If we got here, we now know the word level, so report that
-  print "Level $qr->[0]\n\n";
-  
-  # Report any word classes
-  $qr = $dbh->selectall_arrayref(
-              'SELECT wclassname, wclassfull '
-              . 'FROM wc '
-              . 'INNER JOIN wclass ON wclass.wclassid = wc.wclassid '
-              . 'WHERE wc.wordid = ? '
-              . 'ORDER BY wcord ASC',
-              undef,
-              $word_id);
-  if ((ref($qr) eq 'ARRAY') and (scalar(@$qr) > 0)) {
-    for my $r (@$qr) {
-      printf "%-8s %s\n", $r->[0], $r->[1];
-    }
-    print "\n";
-    
-  } else {
-    print "No word class information.\n\n";
-  }
-  
-  # Get all Han readings as subarrays of hanid and traditional rendering
-  my @hans;
-  $qr = $dbh->selectall_arrayref(
-              'SELECT hanid, hantrad '
-              . 'FROM han WHERE wordid=? '
-              . 'ORDER BY hanord ASC',
-              undef,
-              $word_id);
-  if (ref($qr) eq 'ARRAY') {
-    for my $r (@$qr) {
-      push @hans, ([
-            $r->[0],
-            decode('UTF-8', $r->[1],
-                    Encode::FB_CROAK | Encode::LEAVE_SRC)
-            ]);
-    }
-  }
-  
-  # Now print each Han reading and information relating to it
-  for my $hra (@hans) {
-    
-    # Get Han id and Han traditional
-    my $han_id   = $hra->[0];
-    my $han_trad = $hra->[1];
-    
-    # Print traditional rendering first, without a line break
-    print "  -- $han_trad";
-    
-    # Get all Pinyin readings of this traditional reading
-    $qr = $dbh->selectall_arrayref(
-                'SELECT pnytext FROM pny '
-                . 'WHERE hanid=? ORDER BY pnyord ASC',
-                undef,
-                $han_id);
-    
-    # Print any Pinyin readings after the Han reading and finish the
-    # line
-    if ((ref($qr) eq 'ARRAY') and (scalar(@$qr) > 0)) {
-      print " (";
-      my $first = 1;
-      for my $r (@$qr) {
-        if ($first) {
-          $first = 0;
-        } else {
-          print ", ";
-        }
-        my $pny = decode('UTF-8', $r->[0],
-                          Encode::FB_CROAK | Encode::LEAVE_SRC);
-        print "$pny";
-      }
-      print ")\n";
-    } else {
-      print "\n";
-    }
-    
-    # Get all major definitions of this Han reading
-    my @mopy;
-    $qr = $dbh->selectall_arrayref(
-                'SELECT mpyid, mpytrad, mpysimp, mpypny '
-                . 'FROM mpy WHERE hanid=? ORDER BY mpyord ASC',
-                undef,
-                $han_id);
-    if (ref($qr) eq 'ARRAY') {
-      for my $r (@$qr) {
-        push @mopy, ([
-            $r->[0],
-            decode('UTF-8', $r->[1],
-                    Encode::FB_CROAK | Encode::LEAVE_SRC),
-            decode('UTF-8', $r->[2],
-                    Encode::FB_CROAK | Encode::LEAVE_SRC),
-            decode('UTF-8', $r->[3],
-                    Encode::FB_CROAK | Encode::LEAVE_SRC)]);
-      }
-    }
-    
-    # Print all major definitions
-    if ($#mopy >= 0) {
-      for my $mpa (@mopy) {
-        # Get major ID, traditional/simplified renderings, and Pinyin
-        my $mpy_id   = $mpa->[0];
-        my $mpy_trad = $mpa->[1];
-        my $mpy_simp = $mpa->[2];
-        my $mpy_pny  = $mpa->[3];
-        
-        # Print major definition header
-        print "    + $mpy_trad|$mpy_simp $mpy_pny\n";
-        
-        # Get all glosses for this major definition
-        $qr = $dbh->selectall_arrayref(
-                  'SELECT dfnosen, dfntext '
-                  . 'FROM dfn WHERE mpyid=? '
-                  . 'ORDER BY dfnosen ASC, dfnogls ASC',
-                  undef,
-                  $mpy_id);
-        if (ref($qr) eq 'ARRAY') {
-          my $first_gloss = 1;
-          my $current_sense = 1;
-          for my $r (@$qr) {
-            # Get ordering and gloss
-            my $ord_sense = $r->[0];
-            my $dfn_text  = decode('UTF-8', $r->[1],
-                              Encode::FB_CROAK | Encode::LEAVE_SRC);
-            
-            # If we have moved to a new sense, line break and reset
-            # first_gloss
-            if ($ord_sense != $current_sense) {
-              print "\n";
-              $current_sense = $ord_sense;
-              $first_gloss = 1;
-            }
-            
-            # If first_gloss flag is on, turn it off; else, print gloss
-            # separator
-            if ($first_gloss) {
-              $first_gloss = 0;
-            } else {
-              print "; ";
-            }
-            
-            # Print the gloss
-            print "$dfn_text";
-          }
-          print "\n\n";
-        }
-      }
-      
-    } else {
-      print "\n";
-    }
-  }
-}
-
-# If we got here, commit the transaction
-#
-$dbc->finishWork;
+print $xml;
 
 =head1 AUTHOR
 
