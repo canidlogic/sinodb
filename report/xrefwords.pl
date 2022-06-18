@@ -2,19 +2,16 @@
 use strict;
 use warnings;
 
-# Core dependencies
-use Encode qw(decode);
-
 # Sino imports
 use Sino::DB;
 use Sino::Dict;
-use Sino::Util qw(extract_xref);
+use Sino::Op qw(db_to_string);
 use SinoConfig;
 
 =head1 NAME
 
 xrefwords.pl - Generate a list of extra words that should be added to
-the database so that all cross-references can resolve.
+the database so that references can resolve.
 
 =head1 SYNOPSIS
 
@@ -35,20 +32,22 @@ empty.
 The script then continues making passes through CC-CEDICT until the
 current hash is empty.
 
-In each pass through CC-CEDICT, the script only examines glosses that
-have a traditional Han reading that is in the current hash.  The
-C<extract_xref> is used on each of these glosses to check whether there
-are any cross-references.  If there are, then the traditional Han
-rendering(s) of each cross-reference is checked whether it is in done
-hash or the current hash.  Any traditional Han renderings that are not
-in either of those hases are added to the extra hash and the next hash.
-At the end of the pass, all words in the current hash are moved to the
-done hash, the next hash becomes the new current hash, and the next hash
-is then replaced with an empty hash.
+In each pass through CC-CEDICT, the script only examines records that
+have a traditional Han reading that is in the current hash.  For each of
+these records, a I<reference list> is generated as the set of all unique
+traditional Han readings found within citations for all of the glosses,
+and also found within measure-word and cross-reference annotations on
+both the record level and the gloss level.  For each Han reading in the
+reference list, check whether it is in the done hash or the current
+hash.  Any traditional Han readings that are not in either of those
+hashes are added to the extra hash and the next hash.  At the end of the
+pass, all words in the current hash are moved to the done hash, the next
+hash becomes the new current hash, and the next hash is then replaced
+with an empty hash.
 
 At the end of all the passes, the next hash and current hashes will both
-be empty.  The extra hash will contain all words that should be added to
-the database so that all cross-references can resolve.  Before the final
+be empty.  The extra hash will contain all new words that are referenced
+indirectly from current records within the database.  Before the final
 report, one last pass is made through the dictionary.  This time, all
 headwords in the extra hash that have an entry in the dictionary have
 their value changed to 2.  Output then only includes headwords from the
@@ -104,15 +103,16 @@ for(my $rec = $sth->fetchrow_arrayref;
     ref($rec) eq 'ARRAY';
     $rec = $sth->fetchrow_arrayref) {
   
-  my $htrad = decode('UTF-8', $rec->[0],
-                      Encode::FB_CROAK | Encode::LEAVE_SRC);
+  my $htrad = db_to_string($rec->[0]);
   $rcurrent->{$htrad} = 1;
 }
 
 # Prepare a statement to iterate through all traditional Han headwords
 # in the mpy table
 #
-$sth = $dbh->prepare('SELECT mpytrad FROM mpy');
+$sth = $dbh->prepare(
+              'SELECT reftrad FROM mpy '
+              . 'INNER JOIN ref ON ref.refid=mpy.refid');
 
 # Add all traditional headwords in the mpy table
 #
@@ -121,8 +121,7 @@ for(my $rec = $sth->fetchrow_arrayref;
     ref($rec) eq 'ARRAY';
     $rec = $sth->fetchrow_arrayref) {
   
-  my $htrad = decode('UTF-8', $rec->[0],
-                      Encode::FB_CROAK | Encode::LEAVE_SRC);
+  my $htrad = db_to_string($rec->[0]);
   $rcurrent->{$htrad} = 1;
 }
 
@@ -132,7 +131,7 @@ $dbc->finishWork;
 
 # Open the dictionary file
 #
-my $dict = Sino::Dict->load($config_dictpath);
+my $dict = Sino::Dict->load($config_dictpath, $config_datasets);
 
 # Keep performing passes until the current hash is empty
 #
@@ -147,32 +146,50 @@ while (scalar(%$rcurrent) > 0) {
   # Rewind dictionary
   $dict->rewind;
   
-  # Go through all glosses of all dictionary entries that have
-  # traditional headwords in the current hash
+  # Go through all dictionary entries
   while ($dict->advance) {
+    # Only process dictionary record if in current hash
     if (defined $rcurrent->{$dict->traditional}) {
-      for my $sense ($dict->senses) {
-        for my $gloss (@$sense) {
-          
-          # Try to extract a cross-reference from this gloss
-          my $xref = extract_xref($gloss);
-          if (defined $xref) {
-            # We got a cross-reference, so go through any traditional
-            # headwords in the cross-reference
-            for my $xr (@{$xref->[3]}) {
-              # Get current cross-reference traditional character
-              my $xref_trad = $xr->[0];
-              
-              # Unless this traditional cross-reference is already in
-              # either the done hash or the current hash, add it to both
-              # the extra hash and the next hash
-              unless ((defined $rdone->{$xref_trad}) or
-                        (defined $rcurrent->{$xref_trad})) {
-                $rextra->{$xref_trad} = 1;
-                $rnext->{$xref_trad} = 1;
-              }
-            }
+      
+      # Build the reference-list hash
+      my %rlh;
+      my $rla = $dict->main_annote;
+      
+      for my $measure (@{$rla->{'measures'}}) {
+        $rlh{$measure->[0]} = 1;
+      }
+      
+      for my $xref (@{$rla->{'xref'}}) {
+        for my $xrr (@{$xref->[2]}) {
+          $rlh{$xrr->[0]} = 1;
+        }
+      }
+      
+      for my $entry (@{$dict->entries}) {
+        for my $cite (@{$entry->{'cites'}}) {
+          $rlh{$cite->[2]} = 1;
+        }
+        
+        for my $measure (@{$entry->{'measures'}}) {
+          $rlh{$measure->[0]} = 1;
+        }
+        
+        for my $xref (@{$entry->{'xref'}}) {
+          for my $xrr (@{$xref->[2]}) {
+            $rlh{$xrr->[0]} = 1;
           }
+        }
+      }
+      
+      # Go through all references we found
+      for my $xref_trad (keys %rlh) {
+        # Unless this traditional cross-reference is already in either
+        # the done hash or the current hash, add it to both the extra
+        # hash and the next hash
+        unless ((defined $rdone->{$xref_trad}) or
+                  (defined $rcurrent->{$xref_trad})) {
+          $rextra->{$xref_trad} = 1;
+          $rnext->{$xref_trad} = 1;
         }
       }
     }
