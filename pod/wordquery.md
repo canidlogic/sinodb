@@ -5,15 +5,18 @@ wordquery.pl - List all information about particular words.
 # SYNOPSIS
 
     ./wordquery.pl 526 1116 2561 4195
-    ./wordquery.pl -
+    ./wordquery.pl
 
 # DESCRIPTION
 
 This script reports all information about words with given ID numbers.
 You can either pass the ID numbers directly as one or more program
-arguments, or you can pass `-` as the sole argument and the script will
-read the ID numbers from standard input, with one word ID per line
-(especially useful as a pipeline target for other scripts).
+arguments, or you can pass no arguments and the script will read the ID
+numbers from standard input, with one word ID per line (especially
+useful as a pipeline target for other scripts).
+
+The information returned about the words is in the descriptive XML
+format documented in the `Sino::Op` module.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
