@@ -2,53 +2,29 @@
 use strict;
 use warnings;
 
-# Core dependencies
-use Encode qw(decode);
-
 # Sino imports
 use Sino::DB;
-use Sino::Util qw(
-                parse_measures
-                extract_pronunciation
-                extract_xref
-                parse_cites);
+use Sino::Op qw(db_to_string);
 use SinoConfig;
 
 =head1 NAME
 
-ugloss.pl - Report all glosses that contain Unicode beyond ASCII range
-or square brackets, and the words they belong to.
+ugloss.pl - Report all glosses that contain non-citation Unicode beyond
+ASCII range or square brackets, and the words they belong to.
 
 =head1 SYNOPSIS
 
   ./ugloss.pl
-  ./ugloss.pl -nocl
-  ./ugloss.pl -nopk
-  ./ugloss.pl -noxref
-  ./ugloss.pl -nocites
   ./ugloss.pl -wordid
 
 =head1 DESCRIPTION
 
-This script reads through all glosses.  Any gloss that contains any
-character outside the range [U+0020, U+007E], and any gloss that
-contains ASCII square brackets, is printed to output, along with the
-word ID the gloss belongs to.
-
-The C<-nocl> option ignores any gloss that matches a classifier gloss,
-as determined by the C<parse_measures> function of C<Sino::Util>.
-
-The C<-nopk> option uses the C<extract_pronunciation> function of
-C<Sino::Util> on glosses before they are examined, so that alternate
-pronunciations won't be included in the reported list.
-
-The C<-noxref> option uses the C<extract_xref> function of C<Sino::Util>
-on glosses before they are examined, so that cross-references won't be
-included in the reported list.
-
-The C<-nocites> option uses the C<parse_cites> function of C<Sino::Util>
-on glosses before they are examined, so that citations won't be included
-in the reported list.
+This script scans through all glosses in the C<dfn> table.  For each
+gloss, all codepoints are examined that are not part of any citation.
+If any of these codepoints are outside the range [U+0020, U+007E], or if
+any of these codepoints are ASCII square brackets, the gloss is printed
+(with citations removed) to output, along with the word ID the gloss
+belongs to.
 
 The C<-wordid> causes only a list of word IDs to be reported, rather
 than glosses with word IDs.
@@ -69,27 +45,11 @@ binmode(STDOUT, ":encoding(UTF-8)") or
 
 # Parse options
 #
-my $flag_nocl    = 0;
-my $flag_nopk    = 0;
-my $flag_noxref  = 0;
-my $flag_nocites = 0;
 my $flag_wordid  = 0;
 
 for(my $i = 0; $i <= $#ARGV; $i++) {
-  if ($ARGV[$i] eq '-nocl') {
-    $flag_nocl = 1;
-  
-  } elsif ($ARGV[$i] eq '-nopk') {
-    $flag_nopk = 1;
-  
-  } elsif ($ARGV[$i] eq '-noxref') {
-    $flag_noxref = 1;
-  
-  } elsif ($ARGV[$i] eq '-wordid') {
+  if ($ARGV[$i] eq '-wordid') {
     $flag_wordid = 1;
-    
-  } elsif ($ARGV[$i] eq '-nocites') {
-    $flag_nocites = 1;
     
   } else {
     die "Unrecognized option '$ARGV[$i]', stopped";
@@ -103,67 +63,59 @@ my $dbc = Sino::DB->connect($config_dbpath, 0);
 # Start a read transaction for everything
 #
 my $dbh = $dbc->beginWork('r');
+my $qr;
 
-# Prepare a statement to iterate through all glosses along with the
-# word IDs they belong to
+# Get a list of all the gloss IDs
 #
-my $sth = $dbh->prepare(
-            'SELECT wordid, dfntext '
-            . 'FROM dfn '
-            . 'INNER JOIN mpy ON mpy.mpyid = dfn.mpyid '
-            . 'INNER JOIN han ON han.hanid = mpy.hanid');
+my @gloss_ids;
+$qr = $dbh->selectall_arrayref('SELECT dfnid FROM dfn');
+if (ref($qr) eq 'ARRAY') {
+  for my $rec (@$qr) {
+    push @gloss_ids, ($rec->[0]);
+  }
+}
 
 # Go through all glosses
 #
-$sth->execute;
 my %id_hash;
-for(my $rec = $sth->fetchrow_arrayref;
-    ref($rec) eq 'ARRAY';
-    $rec = $sth->fetchrow_arrayref) {
+for my $gloss_id (@gloss_ids) {
   
   # Get the gloss and word ID
-  my $word_id = $rec->[0];
-  my $gloss   = decode('UTF-8', $rec->[1],
-                        Encode::FB_CROAK | Encode::LEAVE_SRC);
+  $qr = $dbh->selectrow_arrayref(
+            'SELECT wordid, dfntext '
+            . 'FROM dfn '
+            . 'INNER JOIN mpy ON mpy.mpyid = dfn.mpyid '
+            . 'INNER JOIN han ON han.hanid = mpy.hanid '
+            . 'WHERE dfnid=?',
+            undef,
+            $gloss_id);
+  (ref($qr) eq 'ARRAY') or die "Unexpected";
   
-  # If -nopk mode, then attempt to extract pronunciation and replace
-  # gloss with altered gloss
-  if ($flag_nopk) {
-    my $retval = extract_pronunciation($gloss);
-    if (defined $retval) {
-      $gloss = $retval->[0];
+  my $word_id = $qr->[0];
+  my $gloss   = db_to_string($qr->[1]);
+  
+  # Get all citation locations within this gloss in reverse order from
+  # back of the string to front
+  my @cites;
+  $qr = $dbh->selectall_arrayref(
+            'SELECT citoff, citlen '
+            . 'FROM cit WHERE dfnid=? ORDER BY citoff DESC',
+            undef,
+            $gloss_id);
+  if (ref($qr) eq 'ARRAY') {
+    for my $crec (@$qr) {
+      push @cites, ([$crec->[0], $crec->[1]]);
     }
   }
   
-  # If -noxref mode, then attempt to extract cross-reference and replace
-  # gloss with altered gloss
-  if ($flag_noxref) {
-    my $retval = extract_xref($gloss);
-    if (defined $retval) {
-      $gloss = $retval->[0];
-    }
-  }
-  
-  # If -nocl mode, then attempt to extract measure word gloss and
-  # replace gloss with altered gloss
-  if ($flag_nocl) {
-    my $retval = parse_measures($gloss);
-    if (defined $retval) {
-      $gloss = $retval->[0];
-    }
-  }
-  
-  # If -nocites mode, then attempt to extract citations and replace
-  # gloss with literal strings
-  if ($flag_nocites) {
-    my @retarr = parse_cites($gloss);
-    $gloss = '';
-    for(my $i = 0; $i <= $#retarr; $i = $i + 2) {
-      $gloss = $gloss . $retarr[$i];
-    }
+  # With the citations in the order from back of string to front, drop
+  # all citations from within the gloss string
+  for my $cite (@cites) {
+    substr($gloss, $cite->[0], $cite->[1], '');
   }
   
   # Report if gloss contains anything outside of US-ASCII printing range
+  # or if it contains square brackets
   unless ($gloss =~ /\A[\x{20}-\x{5a}\x{5c}\x{5e}-\x{7e}]*\z/) {
     if ($flag_wordid) {
       if (not defined $id_hash{"$word_id"}) {
