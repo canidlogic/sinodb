@@ -9,7 +9,9 @@ glosses for any of their Han renderings.
     ./nogloss.pl -min 4
     ./nogloss.pl -max 2
     ./nogloss.pl -multi
-    ./nogloss.pl -level 1
+    ./nogloss.pl -redir
+    ./nogloss.pl -level 1-6
+    ./nogloss.pl -han
 
 # DESCRIPTION
 
@@ -22,8 +24,11 @@ gloss are reported.
 The `-multi` option, if provided, specifies that only records that have
 at least two Han renderings should be checked.
 
+The `-redir` option, if provided, considers having a cross-reference
+annotation to count as having a gloss.
+
 The `-level` option, if specified, specifies that only records that
-have a word level matching the given level are considered.
+have a word level in the given range are considered.
 
 The `-min` option, if provided, specifies the minimum number of
 characters at least one of the Han renderings must have for the record
@@ -33,6 +38,9 @@ The `-max` option, if provided, specifies the maximum number of
 characters _all_ Han renderings must have for the record to be checked.
 If not provided, an undefined default is left that indicates there is no
 maximum.
+
+The `-han` option, if provided, prints all the Han traditional
+renderings of discovered words instead of their word IDs.
 
 You can mix these options any way you wish.
 
