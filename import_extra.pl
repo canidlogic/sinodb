@@ -106,7 +106,7 @@ while ($mr->advance) {
             $word_id, 9);
   
   # Add the Han reading for this word
-  enter_han($dbc, $word_id, $hword_enc);
+  enter_han($dbc, $word_id, $hword);
 }
 
 # If we got here, commit all our changes as a single transaction
