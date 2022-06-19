@@ -235,10 +235,9 @@ The tok and tkm tables are used for searching through the glosses for
 token keywords.
 
 The tok table defines unique search tokens.  Search tokens are sequences
-of one or more ASCII lowercase letters, with apostrophe allowed at most
-once so long as it is neither the first nor last character.  Tokens are
-case insensitive and also diacritic marks on Latin letters should be
-removed.
+of one or more ASCII lowercase letters, with apostrophe allowed between
+two letters.  Tokens are case insensitive and also diacritic marks on
+Latin letters should be removed.
 
 The tkm table defines the token content of each gloss.  There is also a
 `pos` field, which indicates the position of the token within the
