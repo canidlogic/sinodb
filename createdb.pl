@@ -237,6 +237,23 @@ C<type> and C<suf> fields specifying the cross-reference descriptor,
 the cross-reference type, and the cross-reference suffix.  Each of these
 three final fields are foreign keys into the atm table.
 
+=head2 tok and tkm tables
+
+The tok and tkm tables are used for searching through the glosses for
+token keywords.
+
+The tok table defines unique search tokens.  Search tokens are sequences
+of one or more ASCII lowercase letters, with apostrophe allowed at most
+once so long as it is neither the first nor last character.  Tokens are
+case insensitive and also diacritic marks on Latin letters should be
+removed.
+
+The tkm table defines the token content of each gloss.  There is also a
+C<pos> field, which indicates the position of the token within the
+gloss.  A position of zero means the token is the first token in the
+gloss, a position of one means the second token in the gloss, and so
+forth.
+
 =cut
 
 # Define a string holding the whole SQL script for creating the
@@ -584,6 +601,34 @@ CREATE INDEX ix_xrd_dfn
 
 CREATE INDEX ix_xrd_ref
   ON xrd(refid);
+
+CREATE TABLE tok (
+  tokid  INTEGER PRIMARY KEY ASC,
+  tokval TEXT UNIQUE NOT NULL
+);
+
+CREATE UNIQUE INDEX ix_tok_val
+  ON tok(tokval);
+
+CREATE TABLE tkm (
+  tkmid   INTEGER PRIMARY KEY ASC,
+  tokid   INTEGER NOT NULL
+            REFERENCES tok(tokid)
+              ON DELETE RESTRICT
+              ON UPDATE CASCADE,
+  dfnid   INTEGER NOT NULL
+            REFERENCES dfn(dfnid)
+              ON DELETE RESTRICT
+              ON UPDATE CASCADE,
+  tkmpos  INTEGER NOT NULL,
+  UNIQUE  (tokid, dfnid, tkmpos)
+);
+
+CREATE UNIQUE INDEX ix_tkm_rec
+  ON tkm(tokid, dfnid, tkmpos);
+
+CREATE INDEX ix_tkm_tok
+  ON tkm(tokid);
 
 };
 
