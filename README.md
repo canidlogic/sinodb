@@ -11,8 +11,9 @@ After proper configuration, you do the following to build the SQLite database:
     ./import_coct.pl
     ./import_extra.pl
     ./import_cedict.pl
+    ./tokenize.pl
 
-The import scripts may take quite a while!  Also, be sure to run the scripts in the exact order shown above.
+These scripts may take quite a while!  Also, be sure to run the scripts in the exact order shown above.
 
 The result of that will be a SQLite database generated at the location you specified in the configuration module you created during the configuration process.  (See `config.md`)
 
