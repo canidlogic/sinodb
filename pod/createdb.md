@@ -229,6 +229,23 @@ identifying the cross-reference.  Finally, both tables have `desc`
 the cross-reference type, and the cross-reference suffix.  Each of these
 three final fields are foreign keys into the atm table.
 
+## tok and tkm tables
+
+The tok and tkm tables are used for searching through the glosses for
+token keywords.
+
+The tok table defines unique search tokens.  Search tokens are sequences
+of one or more ASCII lowercase letters, with apostrophe allowed at most
+once so long as it is neither the first nor last character.  Tokens are
+case insensitive and also diacritic marks on Latin letters should be
+removed.
+
+The tkm table defines the token content of each gloss.  There is also a
+`pos` field, which indicates the position of the token within the
+gloss.  A position of zero means the token is the first token in the
+gloss, a position of one means the second token in the gloss, and so
+forth.
+
 # AUTHOR
 
 Noah Johnson, `noah.johnson@loupmail.com`
