@@ -76,7 +76,7 @@ Sino::Op - Sino database operations module.
   my $xml = words_xml($dbc, [5, 24, 351]);
   
   # Get matching words for a keyword query
-  my $matches = keyword_query('husky AND "sled dog"');
+  my $matches = keyword_query($dbc, 'husky AND "sled dog"', undef);
   for my $match (@$matches) {
     my $match_wordid    = $match->[0];
     my $match_wordlevel = $match->[1];
@@ -516,7 +516,13 @@ only those gloss records from A that do I<not> appear in B; in other
 words, C is the subset of A that is C<without> any of the records from B
 in this case.
 
-@@TODO:
+For the results of the query, any word ID that has at least one gloss
+included in the final results will be included.  Word IDs are sorted
+first in ascending order of word level so that more frequently used
+words come first, and second in ascending order of word ID.  The query
+function allows for a subset of the results to be returned, and also
+provides other facilities for enforcing limits.  See the function
+documentation for further information.
 
 =head1 FUNCTIONS
 
@@ -1839,6 +1845,73 @@ sub words_xml {
   # Return finished XML
   return $xml;
 }
+
+=item B<keyword_query(dbc, query, attrib)>
+
+Given a C<Sino::DB> database connection, a keyword query string, and
+optionally a hash reference with query parameters, return an array
+reference to matching records.
+
+The query format is described in the "Keyword query" documentation given
+near the top of this module.  Fatal errors occur if the given query
+string can not be parsed.  The string should be in Unicode format, not
+binary encoded.
+
+The return is always an array reference.  If there were no matches, a
+reference to an empty array will be returned.  Else, each record will be
+a subarray reference that has two elements, the first being the word ID
+and the second being the word level.  Records are sorted primarily by
+ascending order of word level so that simpler, more frequent words come
+first.  Within each word level, records are sorted in increasing order
+of word ID.
+
+The C<attrib> parameter can be set to C<undef> if you don't need any
+special attributes.  Otherwise, it is a key/value map where unrecognized
+attribute keys are ignored.
+
+The C<max_query> attribute, if specified, must be set to an integer
+value greater than zero.  If the length in codepoints of the C<query>
+parameter is greater than this attribute value, then a fatal error will
+occur preventing huge keyword strings.  If this attribute is not
+specified, there is no upper limit on the total query length.
+
+The C<max_depth> attribute, if specified, must be set to an integer
+value greater than zero.  If set to one, then no groups with parentheses
+are allowed.  If set to two, then there may be groups, but no groups
+within groups.  If set to three, then there may be groups and groups
+within groups, but no groups within groups within groups, and so forth.
+If this attribute is not specified, there is no upper limit on the group
+nesting depth.
+
+The C<max_token> attribute, if specified, must be set to an integer
+value greater than zero.  If set, then this is the maximum number of
+search tokens allowed within the keyword query.  Within quoted entities,
+each token is counted separately.  Within hyphenated token sequences,
+each token is also counted separately.  If this attribute is not
+specified, there is no upper limit on the number of search tokens.
+
+(The C<max_query> C<max_depth> and C<max_token> attributes are intended
+for putting limits on query complexity, which is useful when you are
+allowing the general public to run queries over the Internet.)
+
+The C<window_size> attribute, if specified, must be set to an integer
+value greater than zero.  If set, then this is the maximum number of
+records that will be returned.  If this attribute is not specified,
+there is no upper limit on how many records can be returned.
+
+The C<window_pos> attribute, if specified, must be set to an integer
+value zero or greater.  If set, then this is the number of records that
+are skipped at the beginning of the results.  If this attribute is not
+specified, then it defaults to a value of zero, meaning no records are
+skipped.
+
+(The C<window_size> and C<window_pos> attributes when used together
+allow for returning windows of results when there are potentially many
+results.  Windowing is handled by the database engine, so it is fast.)
+
+=cut
+
+# @@TODO:
 
 =back
 
