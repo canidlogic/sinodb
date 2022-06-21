@@ -11,7 +11,8 @@ our @EXPORT_OK = qw(
                   enter_pinyin
                   enter_ref
                   enter_atom
-                  words_xml);
+                  words_xml
+                  keyword_query);
 
 # Core dependencies
 use Encode qw(decode encode);
@@ -34,7 +35,8 @@ Sino::Op - Sino database operations module.
         enter_pinyin
         enter_ref
         enter_atom
-        words_xml);
+        words_xml
+        keyword_query);
   
   # Convert Unicode string to binary format needed for SQLite
   my $database_string = string_to_db($unicode_string);
@@ -72,6 +74,13 @@ Sino::Op - Sino database operations module.
   
   # Get an XML representation for a given sequence of words
   my $xml = words_xml($dbc, [5, 24, 351]);
+  
+  # Get matching words for a keyword query
+  my $matches = keyword_query('husky AND "sled dog"');
+  for my $match (@$matches) {
+    my $match_wordid    = $match->[0];
+    my $match_wordlevel = $match->[1];
+  }
 
 =head1 DESCRIPTION
 
@@ -206,7 +215,95 @@ as well as require C<trad> and C<simp> attributes and an optional C<pny>
 field.  Citations will not overlap within the gloss, and each must
 select a valid range of characters within the gloss.
 
-=cut
+=head2 Keyword query format
+
+This subsections documents the keyword query format used for the
+C<keyword_query> function.
+
+Keywords are insensitive to diacritics and to letter case, so before
+parsing begins, the keyword string is decomposed into NFD, combining
+diacritics from Unicode block [U+0300, U+036F] are dropped, the keyword
+string is recomposed into NFC, and all ASCII uppercase letters are
+translated into lowercase.  Additionally, the following normalizing
+substitutions are performed to normalize variant punctuation:
+
+                Variant form               |
+  -----------------------------------------+ Normalized form
+   Codepoint |         Description         |
+  ===========+=============================+=================
+    U+02BC   | Modifier letter apostrophe  |        '
+    U+2019   | Right single quotation mark |   (Apostrophe)
+  -----------+-----------------------------+-----------------
+    U+2010   | Hyphen                      |         
+    U+2011   | Non-breaking hyphen         |         
+    U+2012   | Figure dash                 |        -
+    U+2013   | En dash                     |     (Hyphen)
+    U+2014   | Em dash                     |
+    U+2015   | Horizontal bar              |
+
+Finally, all sequences of whitespace are collapsed into single space
+characters.
+
+At the end of these initial transformations, the keyword string must
+contain only the following:
+
+  <SP> a-z ' " - ( ) ? *
+
+The next check is that all double-quotes are properly paired and have
+valid contents.  To check proper pairing, simply make sure the total
+number of double-quotes in the keyword string is zero or a multiple of
+two.  Within each quoted segment (between the first and second quotes,
+between the third and fourth quotes, and so forth), parentheses are not
+allowed.
+
+After the quote check, it is time to normalize away hyphens.  The first
+step is to drop any space characters that immediately surround hyphens.
+After that transformation, hyphens are only allowed to occur between two
+I<hyphenated characters>.  The hyphenated characters consist of the
+lowercase ASCII letters and the C<?> and C<*> wildcards.  Once these
+hyphenated positions are verified, hyphens that occur within quoted
+segments are simply changed into spaces.
+
+Hyphens that occur outside of quoted segments need more processing.
+Define the set of I<word characters> to include all the hyphenated
+characters, the apostrophe, and the hyphen.  For all sequences of
+hyphenated characters that occur outside quoted segments and contain at
+least one hyphen, surround them by quotes so that they become quoted
+segments, and then replace all the hyphens within the new quoted
+segment with spaces.
+
+At the end of this processing, no hyphen characters will remain within
+the string.  Hyphens are simply an alternate notation for representing
+token sequences:
+
+   Hyphen format | Equivalent to
+  ===============+===============
+     dog-sled    |  "dog sled"
+    "dog-sled"   |  "dog sled"
+
+Now the string can be tokenized.  The I<token characters> consist of the
+lowercase letters, the apostrophe, and the wildcards C<?> and C<*>.
+Outside of quoted segments, each sequence of token characters that is
+not an exact match for C<or> C<and> or C<without> is turned into a
+token, and each parenthesis character is turned into a single-character
+token containing just the parenthesis.  When C<or> C<and> or C<without>
+occurs as a token character sequence outside of quoted segments, they
+are turned into special operator tokens.  Each quoted segment is turned
+into an array of tokens, with each array element representing a sequence
+of token characters within the quoted segments.  (C<or> C<and> and
+C<without> are I<not> interpreted as operator tokens when they are in a
+quoted segment, and parentheses are never allowed within quoted
+segments.)  Quoted segments containing no elements are not allowed,
+quoted segments containing exactly one element are just replaced with a
+single token, and quoted segments containing two or more elements are
+then token arrays.
+
+B<Note:> Putting quotes around a single token never has any significant
+effect except when you quote the C<or> C<and> or C<without> in which
+case this yields a regular token containing those characters instead of
+an operator token.
+
+@@TODO:
 
 =head1 FUNCTIONS
 
