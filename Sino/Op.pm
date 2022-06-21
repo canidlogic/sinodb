@@ -215,10 +215,12 @@ as well as require C<trad> and C<simp> attributes and an optional C<pny>
 field.  Citations will not overlap within the gloss, and each must
 select a valid range of characters within the gloss.
 
-=head2 Keyword query format
+=head2 Keyword query
 
-This subsections documents the keyword query format used for the
-C<keyword_query> function.
+This subsection documents the keyword query format and interpretation
+used for the C<keyword_query> function.
+
+=head3 Initial transformations
 
 Keywords are insensitive to diacritics and to letter case, so before
 parsing begins, the keyword string is decomposed into NFD, combining
@@ -247,8 +249,11 @@ transformations, or the keyword string is invalid:
 
   <SP> a-z ' " - ( ) ? *
 
-Once these initial transformations have been performed, the keyword
-query string must match the following syntax:
+=head3 Syntax rules
+
+Once the initial transformations described in the previous section have
+been performed, the keyword query string must match the C<query>
+production of the following syntax:
 
   query     := ( nq-phrase | q-block )+
   
@@ -264,45 +269,99 @@ query string must match the following syntax:
   token     := tk-core+ ( "'" tk-core+ )*
   tk-core   := { a-z ? * }
 
-The most basic element here is a I<token>.  Tokens are a sequence of one
-or more characters from the set including lowercase ASCII letters,
-question mark, asterisk, and apostrophe, with the restriction that
-apostrophe may only occur between two token characters that are not
-themselves apostrophes (as shown in the syntax above).
+The most basic element here is a I<token>.  Tokens represent a search
+token that must match at least one of the tokens within a gloss record.
+Tokens are a sequence of one or more characters from the set including
+lowercase ASCII letters, question mark, asterisk, and apostrophe, with
+the restriction that apostrophe may only occur between two token
+characters that are not themselves apostrophes (as shown in the syntax
+above).
 
 The question mark and asterisk are I<wildcards> that allow individual
-tokens to match multiple search words.  The question mark means that any
-single character in a search word can be matched at this position.  The
-asterisk means that any sequence of zero or more characters in a search
-word can be matched at this position.  You can combine these wildcards
-in sequence, for example C<???*> will match any sequence of three or
-more characters in a search word.
-
-Sequences of wildcards are normalized in the following manner.  For each
-sequence of wildcards, count the total number of question marks (if
-any), and also check whether there is at least one asterisk.  The
-normalized form is a sequence of zero or more question marks (matching
-the count of question marks), followed by a single asterisk if there was
-at least one asterisk in the original sequence, else followed by
-nothing.  For example, C<?**?*?**> normalizes to C<???*> which has an
-equivalent meaning.  Normalization will be automatically be performed
-during the C<keyword_query> function.
+search tokens to match multiple kinds of tokens within glosses.  The
+question mark means that any single character in a gloss token can be
+matched at this position.  The asterisk means that any sequence of zero
+or more characters in a gloss token can be matched at this position.
+You can combine these wildcards in sequence, for example C<dog???*> will
+match C<dogsled> and C<doghouse> but not C<dogma> because there must be
+at least three letters after the initial C<dog> to match.
 
 On top of tokens are built I<keys>.  A key is a sequence of one or more
 tokens, where tokens are separated from each other by hyphens.  (The
-hyphens may also be surrounded by whitespace.)  When keys appear within
-a quoted segment (C<q-phrase>), all keys within the quoted segment will
-be interpreted as if they were all combined into a single search key
-that has all tokens within the quoted segment in a single sequence.
+hyphens may also be surrounded by whitespace.)  Keys represent a
+sequence of consecutive tokens that must appear in a gloss for the gloss
+to match.  For example the C<sled-dog> will match the gloss C<Alaskan
+sled dog>, but it will not match the gloss C<sled for a dog>.
 
-A key either represents an operator or a search key.  Keys represent an
-operator if:  (1) the key does not occur within a quoted segment (that
-is, the key occurs in an C<nq-phrase>); (2) the key has only a single
-token; (3) that single, unquoted token is C<and> C<or> or C<without>.
-In all other cases, keys represent search keys.  The following table
-gives some examples:
+The top-level syntax entity is a I<query>.  Queries contain a sequence
+of one or more quoted key sequences, unquoted keys, and groups, as shown
+in the syntax rules.  A I<group> is a recursively embedded subquery that
+is surrounded by parentheses.  Groups are meaningful in the
+interpretation of operators, which is described later.
 
-      Example     |               Interpretation
+Just because a query matches the syntax rules given in this section does
+I<not> mean that it is a valid query.  There are higher-level
+requirements beyond the syntax rules given here, which are explained in
+subsequent sections here.
+
+=head3 Wildcard normalization
+
+Sequences of wildcards within tokens are normalized in the following
+manner.  For each sequence of wildcards, count the total number of
+question marks (if any), and also check whether there is at least one
+asterisk.  The normalized form is a sequence of zero or more question
+marks (matching the count of question marks), followed by a single
+asterisk if there was at least one asterisk in the original sequence,
+else followed by nothing.
+
+For example, C<?**?*?**> normalizes to C<???*> which has an equivalent
+meaning.
+
+Normalization will be automatically be performed on each token during
+the C<keyword_query> function.
+
+=head3 Intermediate transform
+
+Once a keyword query has been parsed according to the syntax rules given
+earlier, and the wildcards have been normalized as described in the
+previous section, the syntax tree is transformed into an intermediate
+format described here.
+
+The intermediate format of a query is an array of one or more
+I<entities>.  Intermediate entities are either: (1) token sequences of
+one or more tokens; (2) operators; or (3) subqueries.
+
+Each quoted segment in the keyword query is transformed into a single
+token sequence in the intermediate format containing the tokens in the
+exact order they appear within the quotes.  The hyphenation of tokens
+within quoted segments is irrelevant.  Therefore, for example,
+C<"big sled-dog"> and C<"big-sled dog"> and C<"big sled dog"> all end up
+as a token sequence of the three tokens C<big, sled, dog> in
+intermediate form, with no difference in interpretation.
+
+Each unquoted key in the keyword query is transformed either into a
+token sequence or an operator.  If the unquoted key has just a single
+token that matches C<and> C<or> or C<without> (case insensitive), then
+the unquoted key is transformed into the corresponding operator.  In all
+other cases, the unquoted key is transformed into a token sequence
+matching the token(s) within the key.
+
+Unlike within quoted segments, outside quoted segments hyphenation I<is>
+meaningful.  C<big sled-dog> transforms into the token sequence C<big>
+followed by the token sequence C<sled, dog>; C<big-sled dog> transforms
+into the token sequence C<big, sled> followed by the token sequence
+C<dog>; and C<big sled dog> transforms into the token sequence C<big>
+followed by the token sequence C<sled> followed by the token sequence
+C<dog>.
+
+Quoting is for the most part an alternate notation that can always also
+be equivalently represented as an unquoted, hyphenated token sequence,
+except in one case.  The exception case is when you want search tokens
+containing just the words C<and> C<or> or C<without>.  In this case, you
+I<must> quote these words to prevent them from being transformed into
+operators.  The following table gives some examples:
+
+   Example query  |               Interpretation
   ================+=============================================
    sled and dog   | search "sled", operator "and", search "dog"
    sled "and" dog | search "sled", search "and", search "dog"
@@ -312,38 +371,140 @@ gives some examples:
    "sled and dog" | search "sled and dog"
    sled-and-dog   | search "sled and dog"
 
-As can be seen from some of these example pairs, quoted phrases are
-mostly just an alternative notation for hyphenated sequences of tokens,
-but quoted phrases are required when you want a single search token that
-matches C<and> C<or> or C<without> (as the first two examples show),
-since without quoting those keys would otherwise be interpreted as
-operators.  Within quoted phrases, hyphens can be replaced with spaces
-with no difference in meaning, but the same does I<not> hold for
-unquoted phrases.
+Finally, each group within the keyword query is transformed into a
+subquery in intermediate form.
 
-(This distinction between operators versus search keys is not included
-within the syntax summary given earlier.  It is a higher-level
-construct.  The way in which quoted search keys are all combined into a
-single search key is also not reflected in the syntax summary given
-earlier.)
+The syntax of the transformed intermediate form must match C<i-query> in
+the following:
 
-The highest-level syntax entity is a I<query>.  The whole passed keyword
-query string must be a single query.  Queries are sequences of one or
-more search keys, operators, and I<groups>, where groups are recursively
-embedded queries that are surrounded by parentheses.  In order to be
-valid, operators within a query may only appear when surrounded by
-search keys and/or groups.  (This restriction is higher-level and not
-reflected in the syntax rules given earlier.)
+  i-query   := content ( operator content+ )*
+  content   := ( search | subquery )
+  
+  search    := <non-empty ARRAY OF i-token>
+  operator  := ( <AND> | <OR> | <WITHOUT> )
+  subquery  := <REFERENCE TO i-query>
+  
+  i-token   := itk-core+ ( "'" itk-core+ )*
+  itk-core  := alpha | wildcards
+  alpha     := { a-z }
+  wildcards := ( "*" | ( ( "?" )+ ( "*" )? ) )
 
-Search keys represent sets of gloss records that match the key.  For
-search keys that have only a single token, any gloss record that
-contains a token matching that search token is included in the set.  For
-keys that have a sequence of tokens, any gloss record that contains a
-subsequence of consecutive tokens matching that sequence of search
-tokens is included in the set.
+The main thing we have to be careful about here is the syntax rule that
+operators may only occur when surrounding by search tokens or
+subqueries, as shown in the rules above.  This is I<not> guaranteed by
+the transforms we have done so far, and the search query is malformed if
+this rule isn't followed.  Otherwise, the other rules should be upheld
+provided that we've done all the transformations and normalizations
+described so far.
 
-Groups represent sets of gloss records selected by the embedded query
-contained within the group.
+=head3 Operator normalization
+
+Before the query can be executed, the intermediate format arrived at in
+the previous section has to be transformed again into the I<execution
+format>.
+
+The syntax rules of execution format are very similar to the syntax
+rules of the intermediate format given in the last section:
+
+  x-query   := ( search | x-op )
+  x-op      := x-content operator x-content
+  x-content := ( search | x-sub )
+  
+  search    := <non-empty ARRAY OF i-token>
+  operator  := ( <AND> | <OR> | <WITHOUT> )
+  x-sub     := <REFERENCE TO x-op>
+  
+  i-token   := itk-core+ ( "'" itk-core+ )*
+  itk-core  := alpha | wildcards
+  alpha     := { a-z }
+  wildcards := ( "*" | ( ( "?" )+ ( "*" )? ) )
+
+Everything that's different here is marked with an C<x-> prefix.  The
+overall difference is that C<x-query> is much stricter than C<i-query>
+from the previous section.  For C<x-query>, either the whole query is a
+single search token array, or the query is an C<x-op>, which combines
+two content entities together with an operator.  Content entities may
+either be a search token array or a recursive C<x-op>.  This much
+stricter final form is unambiguous with respect to how things get
+combined with operators.
+
+Transformation from intermediate format to execution format works
+according to a recursive resolver algorithm.  The resolver algorithm
+takes an C<i-query> from intermediate form as input and produces an
+C<x-query> in execution form as output.  The first step in the resolver
+algorithm is to scan to C<i-query> for subqueries and recursively apply
+the resolver algorithm to any subqueries.  Each C<subquery> can then be
+replaced either with a C<search> token, or an C<x-op> reference which
+satisfies the C<x-sub> production.
+
+After the first step of the resolver algorithm, we will have a sequence
+of C<x-content> and C<operator> entities, where operators only occur
+immediately between C<x-content> entities.  The second step of the
+resolver algorithm is to look for places where two C<x-content> entities
+are next to each other, and insert an C<AND> operator between them.
+This means that when no operator is explicitly specified in the original
+query, C<AND> is implicitly assumed.  Thus, C<sled dog> is an equivalent
+query to C<sled and dog>.
+
+After the second step of the resolver algorithm, our sequence of
+C<x-content> and C<operator> entities will alternate between content and
+operator, and the first and last entities will always be content
+entities.  If we are left at this point with just a single C<x-content>
+entity, then the result of the resolver algorithm is the search token or
+C<x-op> contained within that C<x-content> entity.  Otherwise, we must
+proceed further.
+
+If we got to this point, there must be at least one operator in our
+entity sequence.  We need to perform operator normalization until we are
+left with only a single operator in the sequence.  Among the three
+operators, C<WITHOUT> has the highest precedence, C<AND> is next, and
+C<OR> has the lowest precedence.  To perform an operator normalization
+step, find the highest precedence operator remaining in the entity
+sequence.  If there are multiple operators with highest precedence,
+choose the first (leftmost) one.  Take this operator and the surrounding
+C<x-content> entities, combine them into an C<x-op>, and then replace
+these three entities with a reference to that new C<x-op> in the entity
+sequence.  Each of these operator normalization steps reduces the total
+number of operators in the sequence by one while preserving the
+alternating C<x-content> and C<operator> structure, so repeatedly
+running this operation should eventually reduce the number of operators
+in the sequence to one.
+
+After the previous rounds of operator normalization, we will be left
+with two C<x-content> entities combined with an C<operator>.  The result
+of the resolver algorithm is then an C<x-op> containing those two
+C<x-content> entities joined with an C<operator>.
+
+=head3 Query execution
+
+In order to understand query execution, we just need to understand how
+sequences of search tokens select sets of records, and how operators can
+combine two sets of records into one result set.  After this has been
+established, it should be easy to understand how an C<x-query> as
+defined in the previous section works.
+
+Note that although all the query parsing and transformation steps so far
+are implemented within this C<Sino::Op> module, the actual query
+execution is I<not> implemented by this module.  Instead, this module
+internally compiles the C<x-query> into a complex SQL SELECT query, and
+SQLite will then perform the actual query, which is much more efficient.
+
+Sequences of search tokens select sets of matching definition gloss
+records.  Each gloss record in the C<dfn> table has already been parsed
+into sequences of tokens and these parsing results then stored in the
+C<tok> and C<tkm> tables by the C<tokenize.pl> script which should have
+been run while building the Sino database.  For a sequence of search
+tokens to match a gloss record, the tokenized form of the gloss record
+must contain a subsequence of consecutive tokens that matches the search
+tokens.  When the search tokens contain wildcards, it allows the search
+tokens to match any gloss tokens that fit the criteria.
+
+Therefore, for sequences of search tokens containing just a single
+token, all gloss records will be selected that contain any token that
+matches that search token.  For sequences of search tokens containing
+multiple tokens, that sequence of tokens must appear within the gloss
+token sequence without any additional tokens added in for the gloss
+record to match.
 
 Operators combine two gloss record sets A and B into one result set C by
 performing a boolean operation.  The C<and> operator selects only those
@@ -354,21 +515,6 @@ the union of A C<or> B in this case.  The C<without> operator selects
 only those gloss records from A that do I<not> appear in B; in other
 words, C is the subset of A that is C<without> any of the records from B
 in this case.
-
-When a query contains only a single search key or group, the resulting
-set of gloss records is equal to the set of gloss records included by
-that search key or group.  When a query contains two search keys or
-groups combined by a single operator, the resulting set of gloss records
-is equal to the set of gloss records resulting from applying the
-operator to the two sets, as explained in the previous paragraph.
-
-In order to run unambiguously, queries are normalized before execution
-such that the normalized query is either just a single search key, or
-else the normalized query is such that each recursive query is two
-I<search elements> (search keys or groups) connected by a single
-operator.  Since the interpretation of both of these cases was specified
-in the previous paragraph, the interpretation of queries is determined
-once they have been normalized.
 
 @@TODO:
 
