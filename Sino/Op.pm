@@ -227,81 +227,148 @@ string is recomposed into NFC, and all ASCII uppercase letters are
 translated into lowercase.  Additionally, the following normalizing
 substitutions are performed to normalize variant punctuation:
 
-                Variant form               |
-  -----------------------------------------+ Normalized form
-   Codepoint |         Description         |
-  ===========+=============================+=================
-    U+02BC   | Modifier letter apostrophe  |        '
-    U+2019   | Right single quotation mark |   (Apostrophe)
-  -----------+-----------------------------+-----------------
-    U+2010   | Hyphen                      |         
-    U+2011   | Non-breaking hyphen         |         
-    U+2012   | Figure dash                 |        -
-    U+2013   | En dash                     |     (Hyphen)
-    U+2014   | Em dash                     |
-    U+2015   | Horizontal bar              |
+                Variant form               |   Normalized form
+  -----------------------------------------+---------------------
+   Codepoint |         Description         | ASCII | Description
+  ===========+=============================+=======+=============
+    U+02BC   | Modifier letter apostrophe  | 0x27  | Apostrophe
+    U+2019   | Right single quotation mark | 0x27  | Apostrophe      
+  -----------+-----------------------------+-------+-------------
+    U+2010   | Hyphen                      | 0x2D  | Hyphen-minus
+    U+2011   | Non-breaking hyphen         | 0x2D  | Hyphen-minus
+    U+2012   | Figure dash                 | 0x2D  | Hyphen-minus
+    U+2013   | En dash                     | 0x2D  | Hyphen-minus
+    U+2014   | Em dash                     | 0x2D  | Hyphen-minus
+    U+2015   | Horizontal bar              | 0x2D  | Hyphen-minus
 
 Finally, all sequences of whitespace are collapsed into single space
-characters.
-
-At the end of these initial transformations, the keyword string must
-contain only the following:
+characters.  Only the following characters must remain after these
+transformations, or the keyword string is invalid:
 
   <SP> a-z ' " - ( ) ? *
 
-The next check is that all double-quotes are properly paired and have
-valid contents.  To check proper pairing, simply make sure the total
-number of double-quotes in the keyword string is zero or a multiple of
-two.  Within each quoted segment (between the first and second quotes,
-between the third and fourth quotes, and so forth), parentheses are not
-allowed.
+Once these initial transformations have been performed, the keyword
+query string must match the following syntax:
 
-After the quote check, it is time to normalize away hyphens.  The first
-step is to drop any space characters that immediately surround hyphens.
-After that transformation, hyphens are only allowed to occur between two
-I<hyphenated characters>.  The hyphenated characters consist of the
-lowercase ASCII letters and the C<?> and C<*> wildcards.  Once these
-hyphenated positions are verified, hyphens that occur within quoted
-segments are simply changed into spaces.
+  query     := ( nq-phrase | q-block )+
+  
+  q-block   := <SP>* '"' q-phrase '"' <SP>*
+  q-phrase  := <SP>* key ( <SP>+ key )* <SP>*
+  
+  nq-phrase := <SP>* nq-first nq-follow* <SP>*
+  nq-first  := ( group | key )
+  nq-follow := ( <SP>* group | <SP>+ key )
+  group     := "(" query ")"
+  
+  key       := token ( <SP>* "-" <SP>* token )*
+  token     := tk-core+ ( "'" tk-core+ )*
+  tk-core   := { a-z ? * }
 
-Hyphens that occur outside of quoted segments need more processing.
-Define the set of I<word characters> to include all the hyphenated
-characters, the apostrophe, and the hyphen.  For all sequences of
-hyphenated characters that occur outside quoted segments and contain at
-least one hyphen, surround them by quotes so that they become quoted
-segments, and then replace all the hyphens within the new quoted
-segment with spaces.
+The most basic element here is a I<token>.  Tokens are a sequence of one
+or more characters from the set including lowercase ASCII letters,
+question mark, asterisk, and apostrophe, with the restriction that
+apostrophe may only occur between two token characters that are not
+themselves apostrophes (as shown in the syntax above).
 
-At the end of this processing, no hyphen characters will remain within
-the string.  Hyphens are simply an alternate notation for representing
-token sequences:
+The question mark and asterisk are I<wildcards> that allow individual
+tokens to match multiple search words.  The question mark means that any
+single character in a search word can be matched at this position.  The
+asterisk means that any sequence of zero or more characters in a search
+word can be matched at this position.  You can combine these wildcards
+in sequence, for example C<???*> will match any sequence of three or
+more characters in a search word.
 
-   Hyphen format | Equivalent to
-  ===============+===============
-     dog-sled    |  "dog sled"
-    "dog-sled"   |  "dog sled"
+Sequences of wildcards are normalized in the following manner.  For each
+sequence of wildcards, count the total number of question marks (if
+any), and also check whether there is at least one asterisk.  The
+normalized form is a sequence of zero or more question marks (matching
+the count of question marks), followed by a single asterisk if there was
+at least one asterisk in the original sequence, else followed by
+nothing.  For example, C<?**?*?**> normalizes to C<???*> which has an
+equivalent meaning.  Normalization will be automatically be performed
+during the C<keyword_query> function.
 
-Now the string can be tokenized.  The I<token characters> consist of the
-lowercase letters, the apostrophe, and the wildcards C<?> and C<*>.
-Outside of quoted segments, each sequence of token characters that is
-not an exact match for C<or> C<and> or C<without> is turned into a
-token, and each parenthesis character is turned into a single-character
-token containing just the parenthesis.  When C<or> C<and> or C<without>
-occurs as a token character sequence outside of quoted segments, they
-are turned into special operator tokens.  Each quoted segment is turned
-into an array of tokens, with each array element representing a sequence
-of token characters within the quoted segments.  (C<or> C<and> and
-C<without> are I<not> interpreted as operator tokens when they are in a
-quoted segment, and parentheses are never allowed within quoted
-segments.)  Quoted segments containing no elements are not allowed,
-quoted segments containing exactly one element are just replaced with a
-single token, and quoted segments containing two or more elements are
-then token arrays.
+On top of tokens are built I<keys>.  A key is a sequence of one or more
+tokens, where tokens are separated from each other by hyphens.  (The
+hyphens may also be surrounded by whitespace.)  When keys appear within
+a quoted segment (C<q-phrase>), all keys within the quoted segment will
+be interpreted as if they were all combined into a single search key
+that has all tokens within the quoted segment in a single sequence.
 
-B<Note:> Putting quotes around a single token never has any significant
-effect except when you quote the C<or> C<and> or C<without> in which
-case this yields a regular token containing those characters instead of
-an operator token.
+A key either represents an operator or a search key.  Keys represent an
+operator if:  (1) the key does not occur within a quoted segment (that
+is, the key occurs in an C<nq-phrase>); (2) the key has only a single
+token; (3) that single, unquoted token is C<and> C<or> or C<without>.
+In all other cases, keys represent search keys.  The following table
+gives some examples:
+
+      Example     |               Interpretation
+  ================+=============================================
+   sled and dog   | search "sled", operator "and", search "dog"
+   sled "and" dog | search "sled", search "and", search "dog"
+   sled and-dog   | search "sled", search "and dog"
+   "sled and" dog | search "sled and", search "dog"
+   sled - and dog | search "sled and", search "dog"
+   "sled and dog" | search "sled and dog"
+   sled-and-dog   | search "sled and dog"
+
+As can be seen from some of these example pairs, quoted phrases are
+mostly just an alternative notation for hyphenated sequences of tokens,
+but quoted phrases are required when you want a single search token that
+matches C<and> C<or> or C<without> (as the first two examples show),
+since without quoting those keys would otherwise be interpreted as
+operators.  Within quoted phrases, hyphens can be replaced with spaces
+with no difference in meaning, but the same does I<not> hold for
+unquoted phrases.
+
+(This distinction between operators versus search keys is not included
+within the syntax summary given earlier.  It is a higher-level
+construct.  The way in which quoted search keys are all combined into a
+single search key is also not reflected in the syntax summary given
+earlier.)
+
+The highest-level syntax entity is a I<query>.  The whole passed keyword
+query string must be a single query.  Queries are sequences of one or
+more search keys, operators, and I<groups>, where groups are recursively
+embedded queries that are surrounded by parentheses.  In order to be
+valid, operators within a query may only appear when surrounded by
+search keys and/or groups.  (This restriction is higher-level and not
+reflected in the syntax rules given earlier.)
+
+Search keys represent sets of gloss records that match the key.  For
+search keys that have only a single token, any gloss record that
+contains a token matching that search token is included in the set.  For
+keys that have a sequence of tokens, any gloss record that contains a
+subsequence of consecutive tokens matching that sequence of search
+tokens is included in the set.
+
+Groups represent sets of gloss records selected by the embedded query
+contained within the group.
+
+Operators combine two gloss record sets A and B into one result set C by
+performing a boolean operation.  The C<and> operator selects only those
+gloss records that appear in both A and B; in other words, C is the
+intersection of A C<and> B in this case.  The C<or> operator selects any
+gloss records that appear in either A or B or both; in other words, C is
+the union of A C<or> B in this case.  The C<without> operator selects
+only those gloss records from A that do I<not> appear in B; in other
+words, C is the subset of A that is C<without> any of the records from B
+in this case.
+
+When a query contains only a single search key or group, the resulting
+set of gloss records is equal to the set of gloss records included by
+that search key or group.  When a query contains two search keys or
+groups combined by a single operator, the resulting set of gloss records
+is equal to the set of gloss records resulting from applying the
+operator to the two sets, as explained in the previous paragraph.
+
+In order to run unambiguously, queries are normalized before execution
+such that the normalized query is either just a single search key, or
+else the normalized query is such that each recursive query is two
+I<search elements> (search keys or groups) connected by a single
+operator.  Since the interpretation of both of these cases was specified
+in the previous paragraph, the interpretation of queries is determined
+once they have been normalized.
 
 @@TODO:
 
