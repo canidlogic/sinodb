@@ -2306,6 +2306,210 @@ sub _key_intermediate {
   return $result;
 }
 
+# Operator precedence map for _key_resolve().
+#
+# Keys are the operators (lowercase) and values are precedence integers,
+# with higher precedence values meaning operator should be applied
+# sooner.
+#
+my %KEY_OP_PRECEDENCE = (
+  'without' => 3,
+  'and'     => 2,
+  'or'      => 1
+);
+
+# _key_resolve(qarr)
+#
+# Given an array reference to an intermediate-form query or subquery
+# array, return a query array reference resolved for execution.  This
+# returned array reference either has a single entity hashref with etype
+# "tseq" or it has three entity hashrefs, the first and third being
+# entity hashrefs of etypes "tseq" or "subq" and the second being an
+# entity hahref of etype "op".  The format of these entities follows
+# the format given for _key_intermediate(), except that "subq" entities
+# will only refer to query arrays in resolved execution format with the
+# additional requirement that subqueries only have the three-entity
+# format.
+#
+# See the documentation at the top of this module for more about
+# execution format.
+#
+sub _key_resolve {
+  # Get parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  my $qa = shift;
+  (ref($qa) eq 'ARRAY') or die "Wrong parameter type, stopped";
+  
+  # Check the format of this query array; do not check subqueries
+  # because those will be handled recursively
+  (scalar(@$qa) > 0) or die "Empty query array, stopped";
+  for(my $i = 0; $i < scalar(@$qa); $i++) {
+    # Get current entity
+    my $ent = $qa->[$i];
+    
+    # Check basic format of entity
+    (ref($ent) eq 'HASH') or die "Invalid entity format, stopped";
+    (defined $ent->{'etype'}) or die "Invalid entity format, stopped";
+    (defined $ent->{'edata'}) or die "Invalid entity format, stopped";
+    
+    # Check specific type format of entity
+    if ($ent->{'etype'} eq 'tseq') {
+      (ref($ent->{'edata'}) eq 'ARRAY') or
+        die "Invalid entity data, stopped";
+      
+    } elsif ($ent->{'etype'} eq 'op') {
+      (not ref($ent->{'edata'})) or die "Invalid entity data, stopped";
+      my $op_name = $ent->{'edata'};
+      (($op_name eq 'and') or
+        ($op_name eq 'or') or
+        ($op_name eq 'without')) or die "Invalid op name, stopped";
+      
+    } elsif ($ent->{'etype'} eq 'subq') {
+      (ref($ent->{'edata'}) eq 'ARRAY') or
+        die "Invalid entity data, stopped";
+      
+    } else {
+      die "Entity has invalid type, stopped";
+    }
+    
+    # If this is first or last entity, check that not an operator
+    unless (($i > 0) and ($i < scalar(@$qa) - 1)) {
+      (not ($ent->{'etype'} eq 'op')) or
+        die "Operator may not be first or last, stopped";
+    }
+    
+    # If not the first entry and this is an operator, check that
+    # previous entity is not also an operator
+    if (($i > 0) and ($ent->{'etype'} eq 'op')) {
+      (not ($qa->[$i - 1]->{'etype'} eq 'op')) or
+        die "Operator may not follow another operator, stopped";
+    }
+  }
+  
+  # Create a new query array by copying over elements from the original
+  # array; for subqueries, recursively apply this resolver function and
+  # then replace them either with a "tseq" entity or a "subq" entity
+  # depending on whether the resolved array has one or three entities;
+  # also, insert implicit AND operators so that we alternate between
+  # content and operator entities
+  my @rq;
+  for(my $i = 0; $i < scalar(@$qa); $i++) {
+    # Get current entity
+    my $ent = $qa->[$i];
+    
+    # If current entity is an operator, then just copy it over and skip
+    # rest of processing
+    if ($ent->{'etype'} eq 'op') {
+      push @rq, ($ent);
+      next;
+    }
+    
+    # If we got here, current entity is not an operator; if this is not
+    # the first entity and the previous entity was also not an operator,
+    # then insert an implicit AND in the new query array
+    if (($i > 0) and ($qa->[$i - 1]->{'etype'} ne 'op')) {
+      push @rq, ({
+        etype => 'op',
+        edata => 'and'
+      });
+    }
+    
+    # If current entity is a token sequence, copy it over and skip rest
+    # of processing
+    if ($ent->{'etype'} eq 'tseq') {
+      push @rq, ($ent);
+      next;
+    }
+    
+    # If we got here, current entity is a subquery
+    ($ent->{'etype'} eq 'subq') or die "Unexpected";
+    
+    # Recursively resolve the subquery
+    my $retval = _key_resolve($ent->{'edata'});
+    (ref($retval) eq 'ARRAY') or die "Unexpected";
+    
+    # Handle the different resolutions
+    if (scalar(@$retval) == 1) {
+      # If resolved to a single entity, that entity should be a tseq
+      ($retval->[0]->{'etype'} eq 'tseq') or die "Unexpected";
+      
+      # Copy that tseq into the new array
+      push @rq, ($retval->[0]);
+      
+    } elsif (scalar(@$retval) == 3) {
+      # If resolved to three entities, the first and third entities
+      # should not be ops and the second entity should be an op
+      (($retval->[0]->{'etype'} ne 'op') and
+        ($retval->[1]->{'etype'} eq 'op') and
+        ($retval->[2]->{'etype'} ne 'op')) or die "Unexpected";
+      
+      # Copy this into the new array as a subquery
+      push @rq, ({
+        etype => 'subq',
+        edata => $retval
+      });
+      
+    } else {
+      die "Unexpected";
+    }    
+  }
+  
+  # Make sure we have an odd number of entities in new array, and that
+  # first, third, fifth etc. entities are not operators and second,
+  # fourth, sixth etc. entities are operators
+  (($#rq >= 0) and (($#rq % 2) == 0)) or die "Unexpected";
+  for(my $i = 0; $i <= $#rq; $i++) {
+    if (($i % 2) == 0) {
+      ($rq[$i]->{'etype'} ne 'op') or die "Unexpected";
+    
+    } else {
+      ($rq[$i]->{'etype'} eq 'op') or die "Unexpected";
+    }
+  }
+  
+  # If we have just a single entity in the new array, return it as the
+  # resolved result without proceeding further
+  if ($#rq == 0) {
+    return \@rq;
+  }
+  
+  # Perform operator normalization until the new array has three
+  # elements
+  until ($#rq < 3) {
+    # Find the leftmost, highest-precedence operator remaining in the
+    # new array; precedence levels: 1 for OR, 2 for AND, 3 for WITHOUT
+    my $co_i = 1;
+    my $co_p = $KEY_OP_PRECEDENCE{$rq[1]->{'edata'}};
+    
+    for(my $i = 3; $i <= $#rq; $i = $i + 2) {
+      my $p = $KEY_OP_PRECEDENCE{$rq[$i]->{'edata'}};
+      if ($p > $co_p) {
+        $co_i = $i;
+        $co_p = $p;
+      }
+    }
+    
+    # Generate a new subquery containing the chosen operator and its two
+    # surrounding parameters
+    my $newq = {
+      etype => 'subq',
+      edata => [
+        $rq[$co_i - 1],
+        $rq[$co_i    ],
+        $rq[$co_i + 1]
+      ]
+    };
+    
+    # Replace the operator and its surrounding parameters in the new
+    # array with the subquery we just constructed
+    splice @rq, $co_i - 1, 3, ($newq);
+  }
+  
+  # Return the resolved array
+  return \@rq;
+}
+
 # @@TODO:
 sub _test_print {
   my $test = shift;
@@ -2341,6 +2545,7 @@ sub keyword_query {
   # @@TODO:
   my $str = shift;
   my $test = _key_intermediate($str, undef, undef, undef);
+  $test = _key_resolve($test);
   _test_print($test);
 }
 
