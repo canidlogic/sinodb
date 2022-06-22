@@ -16,6 +16,7 @@ our @EXPORT_OK = qw(
 
 # Core dependencies
 use Encode qw(decode encode);
+use Unicode::Normalize;
 
 # Sino modules
 use Sino::Util qw(pinyin_split);
@@ -1911,7 +1912,437 @@ results.  Windowing is handled by the database engine, so it is fast.)
 
 =cut
 
+# _key_intermediate(str, max_query, max_depth, max_token)
+#
+# Given a keyword string, transform it into intermediate format and
+# return the transformed results.
+#
+# The return value is an array reference to the intermediate format.
+# Each array element is a hash that has an "etype" attribute that gives
+# the type of entity and an "edata" attribute that has the entity value.
+#
+# For intermediate format, the "etype" is either "tseq" "op" or "subq".
+# For "tseq" the "edata" is an array reference storing a sequence of one
+# or more search tokens.  For "op" the "edata" is a string that either
+# is "and" "or" or "without".  For "subq" the "edata" is a reference to
+# another array in intermediate format storing a subquery.
+#
+# See the documentation at the top of this module for more about
+# intermediate format.
+#
+# The max_query, max_depth, and max_token parameters must either be
+# integers that are greater than zero or undef.  This correspond to
+# query complexity limits, as explained in the documentation for the
+# keyword_query() function interface.
+#
+sub _key_intermediate {
+  # Get parameters
+  ($#_ == 3) or die "Wrong number of parameters, stopped";
+  
+  my $str       = shift;
+  my $max_query = shift;
+  my $max_depth = shift;
+  my $max_token = shift;
+  
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  
+  for(my $i = 0; $i < 3; $i++) {
+    my $val;
+    if ($i == 0) {
+      $val = $max_query;
+      
+    } elsif ($i == 1) {
+      $val = $max_depth;
+      
+    } elsif ($i == 2) {
+      $val = $max_token;
+      
+    } else {
+      die "Unexpected";
+    }
+    
+    (defined $val) or next;
+    
+    (not ref($val)) or die "Wrong parameter type, stopped";
+    (int($val) == $val) or die "Wrong parameter type, stopped";
+    
+    $val = int($val);
+    ($val > 0) or die "Parameter out of range, stopped";
+    
+    if ($i == 0) {
+      $max_query = $val;
+      
+    } elsif ($i == 1) {
+      $max_depth = $val;
+      
+    } elsif ($i == 2) {
+      $max_token = $val;
+      
+    } else {
+      die "Unexpected";
+    }
+  }
+  
+  # If maximum query length limit is defined, check it
+  if (defined $max_query) {
+    (length($str) <= $max_query) or
+      die "Query length limited exceeded, stopped";
+  }
+  
+  # Drop common diacritics from the string
+  $str = NFD($str);
+  $str =~ s/[\x{300}-\x{36f}]+//g;
+  $str = NFC($str);
+  
+  # Translate uppercase letters to lowercase
+  $str =~ tr/A-Z/a-z/;
+  
+  # Perform normalizing substitutions
+  $str =~ s/[\x{2bc}\x{2019}]/'/g;
+  $str =~ s/[\x{2010}-\x{2015}]/\-/g;
+  $str =~ s/\s+/ /g;
+  
+  # Check that only valid characters remain
+  ($str =~ /\A[ a-z'"\-\(\)\?\*]*\z/) or
+    die "Query contains invalid characters, stopped";
+  
+  # Test that apostrophe is only used in allowed positions by creating
+  # test copy of the string that has all apostrophes surrounded by
+  # letters and wildcards replaced with control code 0x1A and seeing
+  # whether any apostrophes remain after that
+  my $test_copy = $str;
+  $test_copy =~ s/([a-z\?\*])'([a-z\?\*])/$1\x{1a}$2/g;
+  (not ($test_copy =~ /'/)) or
+    die "Query has apostrophe in invalid position, stopped";
+  
+  # Drop spaces surrounding hyphens
+  $str =~ s/\s*\-\s*/\-/g;
+  
+  # Test that hyphens, after dropping surrounding spaces, are only used
+  # in allowed positions by creating a test copy of the string that has
+  # all hyphens surrounded by letters and wildcards replaced with
+  # control code 0x1A and seeing whether any hyphens remain after that
+  $test_copy = $str;
+  $test_copy =~ s/([a-z\?\*])\-([a-z\?\*])/$1\x{1a}$2/g;
+  (not ($test_copy =~ /\-/)) or
+    die "Query has hyphen in invalid position, stopped";
+  
+  # The double quotes and parentheses should stand by themselves in
+  # tokens on the first tokenization pass, so add spaces around them
+  $str =~ s/(["\(\)])/ $1 /g;
+  
+  # We can now perform the basic tokenization pass by splitting on
+  # whitespace
+  my @basic = split ' ', $str;
+  
+  # Go through the whole basic tokenization and make sure that
+  # parenthesis tokens and quote tokens are properly paired, that
+  # parentheses do not occur in quoted segments, that the maximum depth
+  # does not exceed the max_depth limit if defined, that each token is
+  # either a parenthesis, quote, or valid search token, that if the
+  # max_token limit is defined, it is not exceeded, and finally apply
+  # wildcard normalization to all tokens
+  my $nest_depth = 1;
+  my $dquote_active = 0;
+  my $basic_count = 0;
+  
+  for my $token (@basic) {
+    # Handle different token types
+    if ($token eq '(') {
+      # Opening parenthesis, so increase nesting depth
+      $nest_depth++;
+      
+      # May not occur within quoted segments
+      (not $dquote_active) or
+        die "Parenthesis may not occur in quoted segments, stopped";
+      
+      # If limit is defined, check whether nesting depth has been
+      # exceeded
+      if (defined $max_depth) {
+        ($nest_depth <= $max_depth) or
+          die "Too many nested parentheses, stopped";
+      }
+      
+    } elsif ($token eq ')') {
+      # Closing parenthesis, so decrease nesting depth
+      $nest_depth--;
+      
+      # May not occur within quoted segments
+      (not $dquote_active) or
+        die "Parenthesis may not occur in quoted segments, stopped";
+      
+      # If nesting depth has gone below 1, then there is a parenthesis
+      # pairing problem
+      ($nest_depth > 0) or
+        die "Right parenthesis without matching left, stopped";
+    
+    } elsif ($token eq '"') {
+      # Double quote, so toggle the dquote_active flag
+      if ($dquote_active) {
+        $dquote_active = 0;
+      } else {
+        $dquote_active = 1;
+      }
+    
+    } elsif ($token =~
+                /\A
+                  [a-z\?\*]+
+                  (?:'[a-z\?\*]+)*
+                  (?:
+                    \-
+                    [a-z\?\*]+
+                    (?:'[a-z\?\*]+)*
+                  )*
+                \z/x) {
+      # Search token, so we first need to get the locations of any
+      # wildcard sequences of more than one wildcard; each element in
+      # this array is a subarray with the wildcard sequence, the
+      # original offset, and the original length
+      my @wcl;
+      while ($token =~ /([\*\?]{2,})/g) {
+        my $wcmatch = $1;
+        my $wcpos   = pos($token) - length($wcmatch);
+        push @wcl, ([
+          $wcmatch, $wcpos, length($wcmatch)
+        ]);
+      }
+      
+      # Now go through and normalize each wildcard sequence
+      for my $a (@wcl) {
+        # Get the wildcard string
+        my $wcstr = $a->[0];
+        
+        # Count the number of question marks
+        my $qmc = 0;
+        while ($wcstr =~ /\?/g) {
+          $qmc++;
+        }
+        
+        # Determine whether there is any asterisk
+        my $ast = 0;
+        if ($wcstr =~ /\*/) {
+          $ast = 1;
+        }
+        
+        # Reset string to empty
+        $wcstr = '';
+        
+        # Add question marks
+        for(my $j = 0; $j < $qmc; $j++) {
+          $wcstr = $wcstr . '?';
+        }
+        
+        # Add asterisk if there were any
+        if ($ast) {
+          $wcstr = $wcstr . '*';
+        }
+        
+        # Shouldn't be empty
+        (length($wcstr) > 0) or die "Unexpected";
+        
+        # Set the normalized wildcard string
+        $a->[0] = $wcstr;
+      }
+      
+      # Starting at end of token and working backward, replace all
+      # wildcard sequences with the normalized version
+      for(my $j = $#wcl; $j >= 0; $j--) {
+        substr($token, $wcl[$j]->[1], $wcl[$j]->[2], $wcl[$j]->[0]);
+      }
+      
+      # If limit defined, increase the token count once and then once
+      # for every hyphen, checking that limit not exceeded
+      if (defined $max_token) {
+        $basic_count++;
+        ($basic_count <= $max_token) or
+          die "Too many search tokens, stopped";
+        
+        while ($token =~ /\-/g) {
+          $basic_count++;
+          ($basic_count <= $max_token) or
+            die "Too many search tokens, stopped";
+        }
+      }
+      
+    } else {
+      die "Unrecognized basic token type, stopped";
+    }
+  }
+  (not $dquote_active) or
+    die "Unpaired double quote, stopped";
+  ($nest_depth == 1) or
+    die "Left parenthesis without matching right, stopped";
+  
+  # If we got here, basic syntax of the query is verified and any
+  # defined query complexity limits have been enforced; we now define a
+  # query stack that allows us to handle recursive queries and start it
+  # out with an empty array reference that represents the main query
+  my @stack = ( [] );
+  
+  # Reset the dquote_active flag, which we will use for tracking whether
+  # we are in a quoted segment
+  $dquote_active = 0;
+  
+  # Now parse all the basic tokens
+  for my $token (@basic) {
+    # Handle different token types
+    if ($token eq '(') {
+      # Opening parenthesis, so quote must not be active (which we
+      # checked earlier)
+      (not $dquote_active) or die "Unexpected";
+      
+      # Push an empty array onto the stack to represent the new subquery
+      push @stack, ( [] );
+      
+    } elsif ($token eq ')') {
+      # Closing parenthesis, so quote must not be active (which we
+      # checked earlier)
+      (not $dquote_active) or die "Unexpected";
+      
+      # Pop the subquery array from the stack
+      my $sqa = pop @stack;
+      
+      # Make sure subquery array is not empty
+      (scalar(@$sqa) > 0) or die "Empty subquery, stopped";
+      
+      # Make sure last element of subquery is not an operator
+      (not ($sqa->[-1]->{'etype'} eq 'op')) or
+        die "Subquery ends with operator, stopped";
+      
+      # Add subquery as a subq entity to the end of the query array on
+      # top of the stack
+      push @{$stack[-1]}, ({
+        etype => 'subq',
+        edata => $sqa
+      });
+    
+    } elsif ($token eq '"') {
+      # Double quote, so toggle state
+      if ($dquote_active) {
+        # Quote was active, now closing; clear quote flag
+        $dquote_active = 0;
+        
+        # Make sure the array on top of the stack is not empty
+        (scalar(@{$stack[-1]}) > 0) or
+          die "Empty quoted segment, stopped";
+        
+        # Pop the token list entity
+        my $tle = pop @stack;
+        
+        # Add a tseq entity to the end of the query array on top of the
+        # stack
+        push @{$stack[-1]}, ({
+          etype => 'tseq',
+          edata => $tle
+        });
+      
+      } else {
+        # Quote was not active, now opening; set quote flag
+        $dquote_active = 1;
+        
+        # Push an empty array on top of the stack which will get all the
+        # tokens within the quotes
+        push @stack, ( [] );
+      }
+      
+    } else {
+      # Search token, first check whether we are inside a quote
+      if ($dquote_active) {
+        # We are inside a quote, so we just push each token onto the
+        # array on top of the stack, treated hyphenated elements as
+        # individual tokens
+        push @{$stack[-1]}, (split /\-/, $token);
+        
+      } else {
+        # We are outside of a quote, so distinguish between operators
+        # and search tokens
+        if (($token eq 'and'    ) or
+            ($token eq 'or'     ) or
+            ($token eq 'without')) {
+          # We have an operator, so first make sure that this is not the
+          # first entity in the current query and that the previous
+          # entity in the current query was not also an operator
+          (scalar(@{$stack[-1]}) > 0) or
+            die "Operator may not begin a (sub)query, stopped";
+          ($stack[-1]->[-1]->{'etype'} ne 'op') or
+            die "Consecutive operators not allowed, stopped";
+          
+          # Add the operator entity to the current query
+          push @{$stack[-1]}, ({
+            etype => 'op',
+            edata => $token
+          });
+        
+        } else {
+          # We don't have an operator, so first parse this search key
+          # into a token sequence
+          my @tkseq = split /\-/, $token;
+          
+          # Add a tseq entity to the end of the query array on top of
+          # the stack
+          push @{$stack[-1]}, ({
+            etype => 'tseq',
+            edata => \@tkseq
+          });
+        }
+      }
+    }
+  }
+  
+  # Exactly one element should remain on stack
+  ($#stack == 0) or die "Unexpected";
+  
+  # Get the resulting query array from the stack
+  my $result = pop @stack;
+  
+  # Make sure query array is not empty
+  (scalar(@$result) > 0) or die "Empty query, stopped";
+  
+  # Make sure last element of query is not an operator
+  (not ($result->[-1]->{'etype'} eq 'op')) or
+    die "Query ends with operator, stopped";
+  
+  # Return result
+  return $result;
+}
+
 # @@TODO:
+sub _test_print {
+  my $test = shift;
+  for my $a (@$test) {
+    if ($a->{'etype'} eq 'op') {
+      printf "OPERATOR %s\n", $a->{'edata'};
+      
+    } elsif ($a->{'etype'} eq 'tseq') {
+      print "SEARCH (";
+      my $first = 1;
+      for my $b (@{$a->{'edata'}}) {
+        if ($first) {
+          $first = 0;
+        } else {
+          print ", ";
+        }
+        print $b;
+      }
+      print ")\n";
+      
+    } elsif ($a->{'etype'} eq 'subq') {
+      print "BEGIN SUBQUERY\n";
+      _test_print($a->{'edata'});
+      print "END SUBQUERY\n";
+      
+    } else {
+      die "Unexpected";
+    }
+  }
+}
+
+sub keyword_query {
+  # @@TODO:
+  my $str = shift;
+  my $test = _key_intermediate($str, undef, undef, undef);
+  _test_print($test);
+}
 
 =back
 
