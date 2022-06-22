@@ -378,7 +378,7 @@ subquery in intermediate form.
 The syntax of the transformed intermediate form must match C<i-query> in
 the following:
 
-  i-query   := content ( operator content+ )*
+  i-query   := content+ ( operator content+ )*
   content   := ( search | subquery )
   
   search    := <non-empty ARRAY OF i-token>
