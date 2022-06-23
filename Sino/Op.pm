@@ -2785,14 +2785,124 @@ sub _key_compile {
   return $sql;
 }
 
-# @@TODO:
+# Public function implementation.  See the public documentation for the
+# interface.
+#
 sub keyword_query {
-  # @@TODO:
-  my $str = shift;
-  my $test = _key_intermediate($str, undef, undef, undef);
-  $test = _key_resolve($test);
-  $test = _key_compile($test, undef, undef);
-  print "$test\n";
+  # Get parameters
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
+  
+  my $dbc = shift;
+  (ref($dbc) and $dbc->isa('Sino::DB')) or
+    die "Wrong parameter type, stopped";
+  
+  my $query = shift;
+  (not ref($query)) or die "Wrong parameter type, stopped";
+  
+  my $attrib = shift;
+  if (defined $attrib) {
+    (ref($attrib) eq 'HASH') or die "Wrong parameter type, stopped";
+  }
+  
+  # Get attributes
+  my $max_query = undef;
+  my $max_depth = undef;
+  my $max_token = undef;
+  
+  my $window_size = undef;
+  my $window_pos  = undef;
+  
+  if (defined $attrib) {
+    if (defined $attrib->{'max_query'}) {
+      $max_query = $attrib->{'max_query'};
+    }
+    if (defined $attrib->{'max_depth'}) {
+      $max_depth = $attrib->{'max_depth'};
+    }
+    if (defined $attrib->{'max_token'}) {
+      $max_token = $attrib->{'max_token'};
+    }
+    if (defined $attrib->{'window_size'}) {
+      $window_size = $attrib->{'window_size'};
+    }
+    if (defined $attrib->{'window_pos'}) {
+      $window_pos = $attrib->{'window_pos'};
+    }
+  }
+  
+  # Check attributes
+  for(my $i = 0; $i < 5; $i++) {
+    # Get current attribute
+    my $val;
+    if ($i == 0) {
+      $val = $max_query;
+    } elsif ($i == 1) {
+      $val = $max_depth;
+    } elsif ($i == 2) {
+      $val = $max_token;
+    } elsif ($i == 3) {
+      $val = $window_size;
+    } elsif ($i == 4) {
+      $val = $window_pos;
+    } else {
+      die "Unexpected";
+    }
+    
+    # Skip this attribute if not defined
+    (defined $val) or next;
+    
+    # Each attribute must be an integer
+    (not ref($val)) or die "Invalid attribute type, stopped";
+    (int($val) == $val) or die "Invalid attribute type, stopped";
+    $val = int($val);
+    
+    # Each integer value except window_pos must be greater than zero;
+    # for window_pos, it must be zero or greater
+    if ($i == 4) {
+      ($val >= 0) or die "Attribute value out of range, stopped";
+    } else {
+      ($val > 0) or die "Attribute value out of range, stopped";
+    }
+    
+    # Update current attribute
+    if ($i == 0) {
+      $max_query = $val;
+    } elsif ($i == 1) {
+      $max_depth = $val;
+    } elsif ($i == 2) {
+      $max_token = $val;
+    } elsif ($i == 3) {
+      $window_size = $val;
+    } elsif ($i == 4) {
+      $window_pos = $val;
+    } else {
+      die "Unexpected";
+    }
+  }
+  
+  # First step is to translate the query into intermediate form
+  $query = _key_intermediate(
+              $query, $max_query, $max_depth, $max_token);
+  
+  # Second step is to resolve intermediate form into execution form
+  $query = _key_resolve($query);
+  
+  # Third step is to compile execution form into SQL
+  $query = _key_compile($query, $window_size, $window_pos);
+  
+  # Run the SQL query within a read-only workblock
+  my $dbh = $dbc->beginWork('r');
+  my $qr = $dbh->selectall_arrayref($query);
+  $dbc->finishWork;
+  
+  # If the query result is undefined, replace with an empty array
+  # reference
+  unless (defined $qr) {
+    $qr = [];
+  }
+  
+  # Return the query result
+  return $qr;
 }
 
 =back
