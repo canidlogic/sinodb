@@ -675,13 +675,14 @@ documentation for further information.
     The `window_size` attribute, if specified, must be set to an integer
     value greater than zero.  If set, then this is the maximum number of
     records that will be returned.  If this attribute is not specified,
-    there is no upper limit on how many records can be returned.
+    there is no upper limit on how many records can be returned, and the
+    `window_pos` is ignored.
 
     The `window_pos` attribute, if specified, must be set to an integer
     value zero or greater.  If set, then this is the number of records that
     are skipped at the beginning of the results.  If this attribute is not
     specified, then it defaults to a value of zero, meaning no records are
-    skipped.
+    skipped.  This attribute is ignored if `window_size` is not set.
 
     (The `window_size` and `window_pos` attributes when used together
     allow for returning windows of results when there are potentially many
