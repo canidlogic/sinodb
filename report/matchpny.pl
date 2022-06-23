@@ -2,12 +2,9 @@
 use strict;
 use warnings;
 
-# Core dependencies
-use Encode qw(decode);
-
 # Sino imports
 use Sino::DB;
-use Sino::Util qw(tocfl_pinyin cedict_pinyin);
+use Sino::Op qw(db_to_string);
 use SinoConfig;
 
 =head1 NAME
@@ -22,10 +19,10 @@ there is not a common Pinyin between mpy and pny tables.
 =head1 DESCRIPTION
 
 This script goes through all Han IDs.  For each, it gets a list of all
-TOCFL Pinyin and CC-CEDICT Pinyin.  If there is not at least one common
-element between those lists, the word ID of this han ID is added to the
-result set.  At the end, a list of word IDs for the result set is
-reported.
+TOCFL Pinyin (from the han table) and CC-CEDICT Pinyin (from the mpy
+table).  If there is not at least one common element between those
+lists, the word ID of this han ID is added to the result set.  At the
+end, a list of word IDs for the result set is reported.
 
 =cut
 
@@ -76,18 +73,16 @@ for my $key (keys %hanmap) {
 
   # Get all mpy pinyin and add to the match set with value set to 1
   $qr = $dbh->selectall_arrayref(
-                'SELECT mpypny FROM mpy WHERE hanid=?',
+                'SELECT refpny FROM mpy '
+                . 'INNER JOIN ref ON ref.refid=mpy.refid '
+                . 'WHERE hanid=?',
                 undef,
                 $han_id);
   if (ref($qr) eq 'ARRAY') {
     for my $r (@$qr) {
-      my $pny = decode('UTF-8', $r->[0],
-                        Encode::FB_CROAK | Encode::LEAVE_SRC);
-      my $npny = cedict_pinyin($pny);
-      if (defined $npny) {
-        $match_set{$npny} = 1;
-      } else {
-        warn "Invalid CC-CEDICT Pinyin '$pny', continuing";
+      if (defined $r->[0]) {
+        my $pny = db_to_string($r->[0]);
+        $match_set{$pny} = 1;
       }
     }
   }
@@ -105,17 +100,9 @@ for my $key (keys %hanmap) {
   if (ref($qr) eq 'ARRAY') {
     for my $r (@$qr) {
       $found_some = 1;
-      my $pny = decode('UTF-8', $r->[0],
-                        Encode::FB_CROAK | Encode::LEAVE_SRC);
-      my $npny;
-      eval {
-        $npny = tocfl_pinyin($pny);
-      };
-      if ($@) {
-        die "Failed with TOCFL Pinyin '$pny', stopped";
-      }
-      if (defined $match_set{$npny}) {
-        $match_set{$npny} = 2;
+      my $pny = db_to_string($r->[0]);
+      if (defined $match_set{$pny}) {
+        $match_set{$pny} = 2;
       }
     }
   }
