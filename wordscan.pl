@@ -2,32 +2,34 @@
 use strict;
 use warnings;
 
-# Core dependencies
-use Encode qw(decode);
-
 # Sino imports
 use Sino::DB;
+use Sino::Op qw(keyword_query);
 use SinoConfig;
 
 =head1 NAME
 
-wordscan.pl - Report the word IDs of all words that have glosses
-matching given keywords.
+wordscan.pl - Report the word IDs of all words that match a given
+keyword query.
 
 =head1 SYNOPSIS
 
-  ./wordscan.pl dog
+  ./wordscan.pl 'husky sled-dog'
 
 =head1 DESCRIPTION
 
-This script goes through all glosses in the Sino database and records
-the word IDs of all words that have any glosses containing all given
-keywords.  Keywords are specified as command-line arguments.  If none
-are given, a list of all word IDs is returned.  Keyword matching is
-case-insensitive, and only ASCII characters may be used in keywords.
+This script runs a keyword query against the Sino database.  This is a
+simple front-end for the C<keyword_query()> function of C<Sino::Op>.
+See the documentation of that module for further information.
 
-Spaces may be included in (quoted) arguments, in which case the space
-will be searched for as part of the keyword.
+Since using apostrophes in command-line arguments may be an issue, this
+script will replace C<!> characters in the keyword query with
+apostrophes before it is processed.  This is not part of standard
+keyword processing, but provided solely for this script as a workaround
+for the awkwardness otherwise of using single-quoted arguments that must
+include apostrophes.
+
+The output is a list of word IDs that match the keyword query.
 
 See C<config.md> in the C<doc> directory for configuration you must do
 before using this script.
@@ -38,83 +40,27 @@ before using this script.
 # Program entrypoint
 # ==================
 
-# Get all keywords, lowercased
+# Get the keyword query
 #
-my @keywords;
-for my $arg (@ARGV) {
-  ($arg =~ /\A[\x{20}-\x{7e}]+\z/) or
-    die "Keywords must be non-empty and include only ASCII, stopped";
-  my $kval = $arg;
-  $kval =~ tr/A-Z/a-z/;
-  push @keywords, ($kval);
-}
+($#ARGV == 0) or die "Wrong number of program arguments, stopped";
+my $query = $ARGV[0];
+
+# Replace exclamation mark with apostrophe
+#
+$query =~ s/!/'/g;
 
 # Open database connection to existing database
 #
 my $dbc = Sino::DB->connect($config_dbpath, 0);
 
-# Start a read transaction for everything
+# Perform the keyword query
 #
-my $dbh = $dbc->beginWork('r');
-
-# Results hash will map word IDs to 1 for any word IDs that match
-#
-my %results;
-
-# Prepare a statement for going through all glosses and word IDs
-#
-my $sth = $dbh->prepare(
-  'SELECT han.wordid, dfn.dfntext '
-  . 'FROM dfn '
-  . 'INNER JOIN mpy ON mpy.mpyid = dfn.mpyid '
-  . 'INNER JOIN han ON han.hanid = mpy.hanid'
-);
-
-# Run the statement and iterate through all result records
-#
-$sth->execute;
-for(my $rr = $sth->fetchrow_arrayref;
-    defined($rr) and ref($rr) eq 'ARRAY';
-    $rr = $sth->fetchrow_arrayref) {
-  
-  # Get the wordid and gloss for this row
-  my $wordid = $rr->[0];
-  my $gloss  = $rr->[1];
-  
-  # ASCII lowercase the gloss
-  $gloss =~ tr/A-Z/a-z/;
-  
-  # Start with the accept flag set
-  my $accept = 1;
-  
-  # Go through the keywords, and if any keyword is not found, clear the
-  # accept flag
-  for my $kw (@keywords) {
-    if (index($gloss, $kw) < 0) {
-      $accept = 0;
-      last;
-    }
-  }
-  
-  # If accept flag is still on, add this wordid to the results
-  if ($accept) {
-    $results{"$wordid"} = 1;
-  }
-}
-
-# If we got here, commit the transaction
-#
-$dbc->finishWork;
-
-# Convert the results hash to an array based on the keys, sorted in
-# ascending order
-#
-my @result_arr = map(int, sort { int($a) <=> int($b) } keys %results);
+my $results = keyword_query($dbc, $query, undef);
 
 # Print all the results
 #
-for my $rval (@result_arr) {
-  print "$rval\n";
+for my $result (@$results) {
+  printf "%d\n", $result->[0];
 }
 
 =head1 AUTHOR
