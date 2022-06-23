@@ -1898,13 +1898,14 @@ allowing the general public to run queries over the Internet.)
 The C<window_size> attribute, if specified, must be set to an integer
 value greater than zero.  If set, then this is the maximum number of
 records that will be returned.  If this attribute is not specified,
-there is no upper limit on how many records can be returned.
+there is no upper limit on how many records can be returned, and the
+C<window_pos> is ignored.
 
 The C<window_pos> attribute, if specified, must be set to an integer
 value zero or greater.  If set, then this is the number of records that
 are skipped at the beginning of the results.  If this attribute is not
 specified, then it defaults to a value of zero, meaning no records are
-skipped.
+skipped.  This attribute is ignored if C<window_size> is not set.
 
 (The C<window_size> and C<window_pos> attributes when used together
 allow for returning windows of results when there are potentially many
@@ -2510,43 +2511,288 @@ sub _key_resolve {
   return \@rq;
 }
 
-# @@TODO:
-sub _test_print {
-  my $test = shift;
-  for my $a (@$test) {
-    if ($a->{'etype'} eq 'op') {
-      printf "OPERATOR %s\n", $a->{'edata'};
-      
-    } elsif ($a->{'etype'} eq 'tseq') {
-      print "SEARCH (";
-      my $first = 1;
-      for my $b (@{$a->{'edata'}}) {
-        if ($first) {
-          $first = 0;
-        } else {
-          print ", ";
-        }
-        print $b;
+# _key_to_sql(qarr)
+#
+# Given an array reference to an execution-form query array, return a
+# SQL fragment that represents the dfnid WHERE condition for this array.
+#
+# This is a helper function for _key_compile().
+#
+sub _key_to_sql {
+  # Get parameter
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  my $qa = shift;
+  (ref($qa) eq 'ARRAY') or die "Wrong parameter type, stopped";
+  
+  # If this is a three-entity query array, we need to handle it
+  # recursively
+  if (scalar(@$qa) == 3) {
+    # Recursively compile both of the value arguments into SQL
+    my @valsql;
+    for(my $i = 0; $i < 2; $i++) {
+      # Get desired argument
+      my $arg;
+      if ($i == 0) {
+        $arg = $qa->[0];
+      } elsif ($i == 1) {
+        $arg = $qa->[2];
+      } else {
+        die "Unexpected";
       }
-      print ")\n";
       
-    } elsif ($a->{'etype'} eq 'subq') {
-      print "BEGIN SUBQUERY\n";
-      _test_print($a->{'edata'});
-      print "END SUBQUERY\n";
+      # Argument must be hashref with etype and edata properties
+      (ref($arg) eq 'HASH') or die "Unexpected";
+      ((defined $arg->{'etype'}) and (defined $arg->{'edata'})) or
+        die "Unexpected";
       
+      # Handle the types of argument
+      if ($arg->{'etype'} eq 'tseq') {
+        # For a search token, recursively compile a single-entity query
+        # array containing just that token
+        my $retval = _key_to_sql([ $arg ]);
+        push @valsql, ($retval);
+        
+      } elsif ($arg->{'etype'} eq 'subq') {
+        # For a subquery, recursively compile the subquery array
+        my $retval = _key_to_sql($arg->{'edata'});
+        push @valsql, ($retval);
+        
+      } else {
+        # Operators not allowed in these positions
+        die "Invalid operator position, stopped";
+      }
+    }
+    
+    # Should have two argument SQL fragments now
+    ($#valsql == 1) or die "Unexpected";
+    
+    # Get middle argument
+    my $marg = $qa->[1];
+    
+    # Middle argument should be operator entity
+    (ref($marg) eq 'HASH') or die "Unexpected";
+    ((defined $marg->{'etype'}) and (defined $marg->{'edata'})) or
+      die "Unexpected";
+    ($marg->{'etype'} eq 'op') or
+      die "Invalid operator position, stopped";
+    
+    # Translate the query operator to a SQL expression operator
+    my $sql_op;
+    if ($marg->{'edata'} eq 'and') {
+      $sql_op = "AND";
+      
+    } elsif ($marg->{'edata'} eq 'or') {
+      $sql_op = "OR";
+      
+    } elsif ($marg->{'edata'} eq 'without') {
+      $sql_op = "AND NOT";
+      
+    } else {
+      die "Unrecognized operator, stopped";
+    }
+    
+    # Return the assembled SQL fragment
+    return '(' . $valsql[0] . " $sql_op " . $valsql[1] . ')';
+  }
+  
+  # If we got here, there should only be a single entity in the array
+  # and it should be an entity of type tseq
+  (scalar(@$qa) == 1) or die "Unexpected";
+  (ref($qa->[0]) eq 'HASH') or die "Unexpected";
+  ((defined $qa->[0]->{'etype'}) and (defined $qa->[0]->{'edata'})) or
+    die "Unexpected";
+  ($qa->[0]->{'etype'} eq 'tseq') or die "Unexpected";
+  
+  # Get the token sequence
+  my $tsq = $qa->[0]->{'edata'};
+  (ref($tsq) eq 'ARRAY') or die "Unexpected";
+  
+  # Handling depends on whether there are one or multiple tokens
+  my $sql;
+  if (scalar(@$tsq) == 1) {
+    # Only a single token, so get it and make sure scalar
+    my $tokval = $tsq->[0];
+    (not ref($tokval)) or die "Unexpected";
+    
+    # Get the right equality phrase depending on whether there are any
+    # wildcards in the token
+    my $eqp;
+    if ($tokval =~ /[\*\?]/) {
+      $eqp = 'LIKE';
+    } else {
+      $eqp = '=';
+    }
+    
+    # Escape any apostrophes in the token value
+    $tokval =~ s/'/''/g;
+    
+    # Change wildcards to SQL style
+    $tokval =~ s/\*/%/g;
+    $tokval =~ s/\?/_/g;
+    
+    # Safety check
+    ($tokval =~ /\A[a-z'%_]+\z/) or
+      die "Invalid token characters, stopped";
+    
+    # Now build the SQL fragment
+    $sql = "(dfnid IN ("
+            . "SELECT dfnid FROM tkm "
+            . "INNER JOIN tok ON tok.tokid=tkm.tokid "
+            . "WHERE tokval $eqp '$tokval'"
+            . "))";
+    
+  } elsif (scalar(@$tsq) > 1) {
+    # More than one token, so start the SQL with the common prefix
+    $sql = "(dfnid IN (SELECT t1.dfnid";
+    
+    # Add each of the tokens into the expression
+    for(my $i = 0; $i < scalar(@$tsq); $i++) {
+      # Get current token value and make sure scalar
+      my $tokval = $tsq->[$i];
+      (not ref($tokval)) or die "Unexpected";
+      
+      # Get the right equality phrase depending on whether there are any
+      # wildcards in the token
+      my $eqp;
+      if ($tokval =~ /[\*\?]/) {
+        $eqp = 'LIKE';
+      } else {
+        $eqp = '=';
+      }
+      
+      # Escape any apostrophes in the token value
+      $tokval =~ s/'/''/g;
+      
+      # Change wildcards to SQL style
+      $tokval =~ s/\*/%/g;
+      $tokval =~ s/\?/_/g;
+      
+      # Safety check
+      ($tokval =~ /\A[a-z'%_]+\z/) or
+        die "Invalid token characters, stopped";
+      
+      # Build the subquery
+      my $subq = "(SELECT dfnid,tkmpos FROM tkm "
+                  . "INNER JOIN tok ON tok.tokid=tkm.tokid "
+                  . "WHERE tokval $eqp '$tokval'"
+                  . ")";
+      
+      # Add subquery to SQL in appropriate way
+      if ($i == 0) {
+        # First time around it is the FROM statement
+        $sql = $sql . " FROM $subq AS t1";
+        
+      } else {
+        # Subsequent tokens use inner joins with conditions to make sure
+        # the tokens are sequenced correctly
+        $sql = $sql . sprintf(" INNER JOIN %s AS t%d",
+                                $subq, $i + 1);
+        $sql = $sql . sprintf(" ON ((t%d.dfnid=t1.dfnid)", $i + 1);
+        $sql = $sql . sprintf(" AND (t%d.tkmpos=(t1.tkmpos+%d)))",
+                                $i + 1, $i);
+      }
+    }
+    
+    # Finish the SQL fragment
+    $sql = $sql . "))";
+    
+  } else {
+    die "Unexpected";
+  }
+  
+  # Return the SQL fragment for the search token
+  return $sql;
+}
+
+# _key_compile(qarr, window_size, window_pos)
+#
+# Given an array reference to an execution-form query array, return a 
+# string with a compiled SQL query that will perform the specified
+# query.
+#
+# The passed array reference must be in the same format as an array
+# returned by the _key_resolve() function.
+#
+# The returned SQL statement will select two columns, the first being
+# the word ID of matching words, and the second being the word level.
+# Records are sorted primarily by ascending order of word level and
+# secondarily by ascending word ID.
+#
+# The window_size and window_pos attributes are optional, and may be set
+# to undef.  See the documentation of the public keyword_query()
+# function for further information.  These attributes can limit the
+# window of records returned, with this limiting built into the SQL
+# query so that it is handled directly by the database engine.
+#
+sub _key_compile {
+  # Get parameters
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
+  
+  my $qa = shift;
+  (ref($qa) eq 'ARRAY') or die "Wrong parameter type, stopped";
+  
+  my $window_size = shift;
+  my $window_pos  = shift;
+  
+  for(my $i = 0; $i < 2; $i++) {
+    my $check;
+    if ($i == 0) {
+      $check = $window_size;
+    } elsif ($i == 1) {
+      $check = $window_pos;
+    } else {
+      die "Unexpected";
+    }
+    
+    (defined $check) or next;
+    
+    (not ref($check)) or die "Wrong parameter type, stopped";
+    (int($check) == $check) or die "Wrong parameter type, stopped";
+    
+    $check = int($check);
+    if ($i == 0) {
+      ($check > 0) or die "Parameter out of range, stopped";
+      $window_size = $check;
+      
+    } elsif ($i == 1) {
+      ($check >= 0) or die "Parameter out of range, stopped";
+      $window_pos = $check;
+    
     } else {
       die "Unexpected";
     }
   }
+  
+  # Build the WHERE condition with subqueries
+  my $where = _key_to_sql($qa);
+  
+  # Build main SQL query
+  my $sql = "SELECT DISTINCT word.wordid, word.wordlevel "
+            . "FROM dfn "
+            . "INNER JOIN mpy ON mpy.mpyid=dfn.mpyid "
+            . "INNER JOIN han ON han.hanid=mpy.hanid "
+            . "INNER JOIN word ON word.wordid=han.wordid "
+            . "WHERE $where "
+            . "ORDER BY word.wordlevel ASC, word.wordid ASC";
+  
+  # If we have both window parameters defined, add window
+  if ((defined $window_size) and (defined $window_pos)) {
+    $sql = $sql . " LIMIT $window_size OFFSET $window_pos";
+  }
+  
+  # Return fully assembled SQL
+  return $sql;
 }
 
+# @@TODO:
 sub keyword_query {
   # @@TODO:
   my $str = shift;
   my $test = _key_intermediate($str, undef, undef, undef);
   $test = _key_resolve($test);
-  _test_print($test);
+  $test = _key_compile($test, undef, undef);
+  print "$test\n";
 }
 
 =back
