@@ -1,22 +1,26 @@
 # NAME
 
-wordscan.pl - Report the word IDs of all words that have glosses
-matching given keywords.
+wordscan.pl - Report the word IDs of all words that match a given
+keyword query.
 
 # SYNOPSIS
 
-    ./wordscan.pl dog
+    ./wordscan.pl 'husky sled-dog'
 
 # DESCRIPTION
 
-This script goes through all glosses in the Sino database and records
-the word IDs of all words that have any glosses containing all given
-keywords.  Keywords are specified as command-line arguments.  If none
-are given, a list of all word IDs is returned.  Keyword matching is
-case-insensitive, and only ASCII characters may be used in keywords.
+This script runs a keyword query against the Sino database.  This is a
+simple front-end for the `keyword_query()` function of `Sino::Op`.
+See the documentation of that module for further information.
 
-Spaces may be included in (quoted) arguments, in which case the space
-will be searched for as part of the keyword.
+Since using apostrophes in command-line arguments may be an issue, this
+script will replace `!` characters in the keyword query with
+apostrophes before it is processed.  This is not part of standard
+keyword processing, but provided solely for this script as a workaround
+for the awkwardness otherwise of using single-quoted arguments that must
+include apostrophes.
+
+The output is a list of word IDs that match the keyword query.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
