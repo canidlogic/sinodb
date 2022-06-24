@@ -10,11 +10,16 @@ import\_extra.pl - Import supplemental words into the Sino database.
 
 This script is used to import supplemental words into a Sino database.
 
-The supplemental datafile `level9.txt` is consulted, and all headwords
-there are added as words into the `word` and `han` tables, with each
-headword being a separate word and the wordlevel of each being set to 9.
-This script verifies that none of the headwords in `level9.txt` are
-already in the database, failing if any are already present.
+The supplemental datafile `remap.txt` is consulted, and all remapped
+entries will be added to existing words if they don't exist yet.  The
+`hantype` field of all these added, remapped records will be set to 1.
+
+The supplemental datafile `level9.txt` is consulted after that, and all
+headwords there are added as words into the `word` and `han` tables,
+with each headword being a separate word and the wordlevel of each being
+set to 9.  However, if any of the headwords in `level9.txt` already
+exists in the database (for example, if they were remapped entries that
+were just added), then they are skipped.
 
 See `config.md` in the `doc` directory for configuration you must do
 before using this script.
