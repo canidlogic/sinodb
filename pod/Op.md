@@ -36,6 +36,9 @@ Sino::Op - Sino database operations module.
     # Enter a Han reading of a specific word ID and get the hanid
     my $han_id = enter_han($dbc, $word_id, $han_reading);
     
+    # Enter a remapped Han reading
+    my $han_id = enter_han($dbc, $word_id, $remapped_reading, 1);
+    
     # Enter a word class of a specific word ID
     enter_wordclass($dbc, $word_id, 'Adv');
     
@@ -75,7 +78,7 @@ The overall structure of the document is summarized as follows:
     <?xml version="1.0" encoding="UTF-8"?>
     <words>
       <word recid="5" level="2" wcs="..., ..., ...">
-        <r han="..." pnys="..., ..., ...">
+        <r han="..." pnys="..., ..., ..." type="remap">
           <m trad="..." simp="..." pny="..." type="proper">
             <n type="msw" trad="..." simp="..." pny="..."/>
             <n type="alt" ctx="..." pny="..." cond="..."/>
@@ -137,7 +140,11 @@ word.  Each reading element may optionally have a `pnys` attribute,
 which is an attribute list of one or more normalized Pinyin renderings
 of this reading element.  The `han` attribute is either from TOCFL or
 COCT, except for level 9, where it is from CC-CEDICT.  The `pnys`
-attribute if present is from TOCFL.
+attribute if present is from TOCFL.  There is also an optional `type`
+attribute that can be set to `remap` or `core`, with `core` being the
+default.  If set to `remap`, it means the reading wasn't present in the
+original TOCFL/COCT, but was added to prevent an entry solely containing
+a cross-reference.  See `remap.pl` for further information.
 
 Each reading element is also a container for zero or more `m` elements,
 which define the major meanings of the reading.  Each `m` element has
@@ -536,7 +543,7 @@ documentation for further information.
     the time you attempt to use the new ID, unless you call this function in
     the same work block that defines the new word.
 
-- **enter\_han(dbc, wordid, hantrad)**
+- **enter\_han(dbc, wordid, hantrad \[, remap\])**
 
     Given a `Sino::DB` database connection, a word ID, and a Han
     traditional character rendering, add it as a Han reading of the given
@@ -550,6 +557,11 @@ documentation for further information.
     `hantrad` should be a Unicode string, not a binary string.  A r/w work
     block will start in this function, so don't call this function within a
     read-only block.
+
+    If a new Han record is added, its `hantype` is set to zero, indicating
+    it is not a remap record.  However, if you include an additional,
+    optional parameter and set it to 1, then the record will be added as a
+    remap, but only if it doesn't exist yet.
 
 - **enter\_wordclass(dbc, wordid, wclassname)**
 
