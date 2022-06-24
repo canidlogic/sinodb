@@ -10,6 +10,7 @@ This directory contains auxiliary scripts.
 - `linescan.pl` - Report lines that use certain codepoints in files
 - `matchpny.pl` - Look for Pinyin mismatches between TOCFL and CC-CEDICT
 - `nogloss.pl` - Look for words lacking any gloss
+- `remap.pl` - Figure out the remap entries required
 - `tocfl_iterate.pl` - Iterate through parsed TOCFL records
 - `ugloss.pl` - Look for glosses containing Unicode or square brackets
 - `xrefwords.pl` - Find extra words by expanding cross-references
