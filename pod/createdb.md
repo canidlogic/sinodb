@@ -55,6 +55,15 @@ _not_ allowed to have the same Han character rendering.  This does
 happen sometimes in the TOCFL dataset, in which case words are merged
 together.
 
+There is also a `hantype` field that is normally zero.  If it is set to
+1, then then this is a special _remap_ record.  Remap records are not
+actually present in the TOCFL/COCT dataset, but they are added when
+CC-CEDICT would otherwise just have cross-references and nothing else
+in the definition for the main Han record.  The remapped entries contain
+the cross-referenced entries.  However, remaps are not added when the
+cross-referenced entry is already in the TOCFL/COCT dataset somewhere
+else (see `remap.pl` for further information).
+
 When different TOCFL source words are merged together, the merged word
 has all the unique Han renderings across the merged words.
 
