@@ -59,6 +59,9 @@ Sino::Op - Sino database operations module.
   # Enter a Han reading of a specific word ID and get the hanid
   my $han_id = enter_han($dbc, $word_id, $han_reading);
   
+  # Enter a remapped Han reading
+  my $han_id = enter_han($dbc, $word_id, $remapped_reading, 1);
+  
   # Enter a word class of a specific word ID
   enter_wordclass($dbc, $word_id, 'Adv');
   
@@ -98,7 +101,7 @@ The overall structure of the document is summarized as follows:
   <?xml version="1.0" encoding="UTF-8"?>
   <words>
     <word recid="5" level="2" wcs="..., ..., ...">
-      <r han="..." pnys="..., ..., ...">
+      <r han="..." pnys="..., ..., ..." type="remap">
         <m trad="..." simp="..." pny="..." type="proper">
           <n type="msw" trad="..." simp="..." pny="..."/>
           <n type="alt" ctx="..." pny="..." cond="..."/>
@@ -160,7 +163,11 @@ word.  Each reading element may optionally have a C<pnys> attribute,
 which is an attribute list of one or more normalized Pinyin renderings
 of this reading element.  The C<han> attribute is either from TOCFL or
 COCT, except for level 9, where it is from CC-CEDICT.  The C<pnys>
-attribute if present is from TOCFL.
+attribute if present is from TOCFL.  There is also an optional C<type>
+attribute that can be set to C<remap> or C<core>, with C<core> being the
+default.  If set to C<remap>, it means the reading wasn't present in the
+original TOCFL/COCT, but was added to prevent an entry solely containing
+a cross-reference.  See C<remap.pl> for further information.
 
 Each reading element is also a container for zero or more C<m> elements,
 which define the major meanings of the reading.  Each C<m> element has
@@ -616,7 +623,7 @@ sub wordid_new {
   return $wordid;
 }
 
-=item B<enter_han(dbc, wordid, hantrad)>
+=item B<enter_han(dbc, wordid, hantrad [, remap])>
 
 Given a C<Sino::DB> database connection, a word ID, and a Han
 traditional character rendering, add it as a Han reading of the given
@@ -631,11 +638,16 @@ C<hantrad> should be a Unicode string, not a binary string.  A r/w work
 block will start in this function, so don't call this function within a
 read-only block.
 
+If a new Han record is added, its C<hantype> is set to zero, indicating
+it is not a remap record.  However, if you include an additional,
+optional parameter and set it to 1, then the record will be added as a
+remap, but only if it doesn't exist yet.
+
 =cut
 
 sub enter_han {
   # Get and check parameters
-  ($#_ == 2) or die "Wrong parameter count, stopped";
+  (($#_ == 2) or ($#_ == 3)) or die "Wrong parameter count, stopped";
   
   my $dbc = shift;
   (ref($dbc) and $dbc->isa('Sino::DB')) or
@@ -651,6 +663,17 @@ sub enter_han {
     die "Wrong parameter type, stopped";
   $wordid = int($wordid);
   ($wordid >= 0) or die "Parameter out of range, stopped";
+  
+  my $is_remap = 0;
+  if ($#_ >= 0) {
+    $is_remap = shift;
+    (not ref($is_remap)) or die "Wrong parameter type, stopped";
+    if ($is_remap) {
+      $is_remap = 1;
+    } else {
+      $is_remap = 0;
+    }
+  }
   
   # Encode traditional reading in binary
   $hantrad = string_to_db($hantrad);
@@ -703,9 +726,10 @@ sub enter_han {
     
     # Insert into table
     $dbh->do(
-        'INSERT INTO han(wordid, hanord, hantrad) VALUES (?,?,?)',
+        'INSERT INTO han(wordid, hanord, hantrad, hantype) '
+        . 'VALUES (?,?,?,?)',
         undef,
-        $wordid, $han_ord, $hantrad);
+        $wordid, $han_ord, $hantrad, $is_remap);
     
     # Get hanid of record
     $han_id = $dbh->selectrow_arrayref(
@@ -1737,12 +1761,13 @@ sub words_xml {
                             $word_level);
     }
     
-    # Get each reading, with each subarray storing the Han ID and the
-    # Han rendering
+    # Get each reading, with each subarray storing the Han ID, the Han
+    # rendering, and a flag that is 1 for a remapped record, 0 for a
+    # core record
     my @ra;
     
     $qr = $dbh->selectall_arrayref(
-                  'SELECT hanid, hantrad '
+                  'SELECT hanid, hantrad, hantype '
                   . 'FROM han WHERE wordid=? ORDER BY hanord ASC',
                   undef,
                   $word_id);
@@ -1750,7 +1775,7 @@ sub words_xml {
       die "Word $word_id lacks readings, stopped";
     for my $r (@$qr) {
       push @ra, ([
-        $r->[0], db_to_string($r->[1])
+        $r->[0], db_to_string($r->[1]), $r->[2]
       ]);
     }
     
@@ -1759,6 +1784,7 @@ sub words_xml {
       # Get reading fields
       my $han_id   = $r->[0];
       my $han_trad = $r->[1];
+      my $han_type = $r->[2];
       
       # Get any Pinyin for this reading
       my @pnys;
@@ -1774,14 +1800,23 @@ sub words_xml {
         }
       }
       
+      # If this is a remapped reading, define the attribute for that,
+      # else leave blank
+      my $remap_attrib = '';
+      if ($han_type) {
+        $remap_attrib = ' type="remap"';
+      }
+      
       # Write the opening reading element
       if ($#pnys >= 0) {
-        $xml = $xml . sprintf("    <r han=\"%s\" pnys=\"%s\">",
+        $xml = $xml . sprintf("    <r han=\"%s\" pnys=\"%s\"%s>",
                                 _xml_att($han_trad),
-                                _xml_attl(\@pnys));
+                                _xml_attl(\@pnys),
+                                $remap_attrib);
       } else {
-        $xml = $xml . sprintf("    <r han=\"%s\">",
-                                _xml_att($han_trad));
+        $xml = $xml . sprintf("    <r han=\"%s\"%s>",
+                                _xml_att($han_trad),
+                                $remap_attrib);
       }
       
       # Get meanings for this reading, with each meaning subarray
