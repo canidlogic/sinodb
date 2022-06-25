@@ -254,6 +254,35 @@ gloss.  A position of zero means the token is the first token in the
 gloss, a position of one means the second token in the gloss, and so
 forth.
 
+## smp and spk tables
+
+The smp and spk tables are used for performing Han-normalized lookups of
+words.
+
+The smp table defines the Han normalization sets.  Two Han characters
+are _connected_ if they are the same character, or if somewhere in the
+ref table, there is a record where one of the characters is in the
+traditional entry while the other character is in the simplified entry
+in the same position.  Two Han characters are _related_ if you can get
+from one character to the other by following a path of connected
+characters.  The _normal set_ of a Han character is the set containing
+all characters related to that Han character.  The _normal form_ of a
+Han character is the Han character in the normal set whose Unicode
+codepoint has the lowest numeric value.
+
+The smp table has one record for each Han character that appears
+somewhere in the han table as part of a traditional headword or in the
+ref table as part of a traditional or simplified reading, but only if
+the normal set includes more than just that character.  Each record
+then maps the Han character to its normal form, as defined in the
+previous paragraph.  The records store the numeric codepoint values of
+the Han characters and the normalized forms.
+
+The spk table associates a set of Han normal forms with each word in the
+word table.  It can therefore be used for Han-normalized lookups of
+words.  The Han normal forms are derived from all the traditional
+headwords of a word in the han table.
+
 # AUTHOR
 
 Noah Johnson, `noah.johnson@loupmail.com`
