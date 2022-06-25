@@ -12,6 +12,7 @@ After proper configuration, you do the following to build the SQLite database:
     ./import_extra.pl
     ./import_cedict.pl
     ./tokenize.pl
+    ./normhan.pl
 
 These scripts may take quite a while!  Also, be sure to run the scripts in the exact order shown above.
 
