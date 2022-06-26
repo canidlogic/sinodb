@@ -12,7 +12,8 @@ our @EXPORT_OK = qw(
                   enter_ref
                   enter_atom
                   words_xml
-                  keyword_query);
+                  keyword_query
+                  han_query);
 
 # Core dependencies
 use Encode qw(decode encode);
@@ -37,7 +38,8 @@ Sino::Op - Sino database operations module.
         enter_ref
         enter_atom
         words_xml
-        keyword_query);
+        keyword_query
+        han_query);
   
   # Convert Unicode string to binary format needed for SQLite
   my $database_string = string_to_db($unicode_string);
@@ -81,6 +83,13 @@ Sino::Op - Sino database operations module.
   
   # Get matching words for a keyword query
   my $matches = keyword_query($dbc, 'husky AND "sled dog"', undef);
+  for my $match (@$matches) {
+    my $match_wordid    = $match->[0];
+    my $match_wordlevel = $match->[1];
+  }
+  
+  # Get matching words for a Han query
+  my $matches = han_query($dbc, $han, undef);
   for my $match (@$matches) {
     my $match_wordid    = $match->[0];
     my $match_wordlevel = $match->[1];
@@ -2928,6 +2937,316 @@ sub keyword_query {
   # Run the SQL query within a read-only workblock
   my $dbh = $dbc->beginWork('r');
   my $qr = $dbh->selectall_arrayref($query);
+  $dbc->finishWork;
+  
+  # If the query result is undefined, replace with an empty array
+  # reference
+  unless (defined $qr) {
+    $qr = [];
+  }
+  
+  # Return the query result
+  return $qr;
+}
+
+=item B<han_query(dbc, query, attrib)>
+
+Given a C<Sino::DB> database connection, a Han query string, and
+optionally a hash reference with query parameters, return an array
+reference to matching records.
+
+The query is a sequence of one or more Han characters and wildcards,
+optionally surrounded by whitespace.  The wildcards allowed are C<*>
+meaning match any sequence of zero or more Han characters and C<?>
+meaning match any one Han character.  These can be combined in a
+sequence, such that C<???*> means match any sequence of three or more
+Han characters, for example.  Wildcard normalization will be performed
+by this function, in the same manner as for C<keyword_query>.
+
+Han character matching uses "Han normalization" such that simplified and
+traditional variants of the same character will match each other.  You
+can specify strict matching only with an attribute (see below).
+
+The query string must be Unicode encoded.  Do not pass a binary-encoded
+string.
+
+The return is always an array reference.  If there were no matches, a
+reference to an empty array will be returned.  Else, each record will be
+a subarray reference that has two elements, the first being the word ID
+and the second being the word level.  Records are sorted primarily by
+ascending order of word level so that simpler, more frequent words come
+first.  Within each word level, records are sorted in increasing order
+of word ID.
+
+The C<attrib> parameter can be set to C<undef> if you don't need any
+special attributes.  Otherwise, it is a key/value map where unrecognized
+attribute keys are ignored.
+
+The C<match_style> attribute, if specified, must be set to C<strict> or
+C<loose>.  If not specified, C<loose> is the default.  With loose
+matching, "Han normalization" is used so that simplified and traditional
+variants will match.  With strict matching, no Han normalization is
+performed, such that characters will only match if exactly the same.
+
+The C<window_size> attribute, if specified, must be set to an integer
+value greater than zero.  If set, then this is the maximum number of
+records that will be returned.  If this attribute is not specified,
+there is no upper limit on how many records can be returned, and the
+C<window_pos> is ignored.
+
+The C<window_pos> attribute, if specified, must be set to an integer
+value zero or greater.  If set, then this is the number of records that
+are skipped at the beginning of the results.  If this attribute is not
+specified, then it defaults to a value of zero, meaning no records are
+skipped.  This attribute is ignored if C<window_size> is not set.
+
+(The C<window_size> and C<window_pos> attributes when used together
+allow for returning windows of results when there are potentially many
+results.  Windowing is handled by the database engine, so it is fast.)
+
+=cut
+
+sub han_query {
+  # Get parameters
+  ($#_ == 2) or die "Wrong number of parameters, stopped";
+  
+  my $dbc = shift;
+  (ref($dbc) and $dbc->isa('Sino::DB')) or
+    die "Wrong parameter type, stopped";
+  
+  my $query = shift;
+  (not ref($query)) or die "Wrong parameter type, stopped";
+  
+  my $attrib = shift;
+  if (defined $attrib) {
+    (ref($attrib) eq 'HASH') or die "Wrong parameter type, stopped";
+  }
+  
+  # Get attributes
+  my $match_style = 'loose';
+  my $window_size = undef;
+  my $window_pos  = undef;
+  
+  if (defined $attrib) {
+    if (defined $attrib->{'match_style'}) {
+      $match_style = $attrib->{'match_style'};
+    }
+    if (defined $attrib->{'window_size'}) {
+      $window_size = $attrib->{'window_size'};
+    }
+    if (defined $attrib->{'window_pos'}) {
+      $window_pos = $attrib->{'window_pos'};
+    }
+  }
+  
+  # Check attributes
+  for(my $i = 0; $i < 3; $i++) {
+    # Get current attribute
+    my $val;
+    if ($i == 0) {
+      $val = $match_style;
+    } elsif ($i == 1) {
+      $val = $window_size;
+    } elsif ($i == 2) {
+      $val = $window_pos;
+    } else {
+      die "Unexpected";
+    }
+    
+    # Skip this attribute if not defined
+    (defined $val) or next;
+    
+    # Check specific attribute
+    if ($i == 0) {
+      # Match style, so check valid values
+      (not ref($val)) or die "Invalid attribute type, stopped";
+      (($val eq 'loose') or ($val eq 'strict')) or
+        die "Invalid match style attribute value, stopped";
+      
+    } elsif ($i == 1) {
+      # Window size
+      (not ref($val)) or die "Invalid attribute type, stopped";
+      (int($val) == $val) or die "Invalid attribute type, stopped";
+      $val = int($val);
+      ($val > 0) or die "Attribute value out of range, stopped";
+      
+    } elsif ($i == 2) {
+      # Window pos
+      (not ref($val)) or die "Invalid attribute type, stopped";
+      (int($val) == $val) or die "Invalid attribute type, stopped";
+      $val = int($val);
+      ($val >= 0) or die "Attribute value out of range, stopped";
+      
+    } else {
+      die "Unexpected";
+    }
+    
+    # Update current attribute
+    if ($i == 0) {
+      $match_style = $val;
+    } elsif ($i == 1) {
+      $window_size = $val;
+    } elsif ($i == 2) {
+      $window_pos = $val;
+    } else {
+      die "Unexpected";
+    }
+  }
+  
+  # Trim leading and trailing whitespace from query
+  $query =~ s/\A\s+//;
+  $query =~ s/\s+\z//;
+  
+  # Make sure remaining query has valid format
+  ($query =~ /\A[\x{4e00}-\x{9fff}\?\*]+\z/) or
+    die "Han query empty or includes invalid characters, stopped";
+  
+  # Get the locations of any wildcard sequences of more than one 
+  # wildcard; each element in this array is a subarray with the wildcard
+  # sequence, the original offset, and the original length
+  my @wcl;
+  while ($query =~ /([\*\?]{2,})/g) {
+    my $wcmatch = $1;
+    my $wcpos   = pos($query) - length($wcmatch);
+    push @wcl, ([
+      $wcmatch, $wcpos, length($wcmatch)
+    ]);
+  }
+  
+  # Now go through and normalize each wildcard sequence
+  for my $a (@wcl) {
+    # Get the wildcard string
+    my $wcstr = $a->[0];
+    
+    # Count the number of question marks
+    my $qmc = 0;
+    while ($wcstr =~ /\?/g) {
+      $qmc++;
+    }
+    
+    # Determine whether there is any asterisk
+    my $ast = 0;
+    if ($wcstr =~ /\*/) {
+      $ast = 1;
+    }
+    
+    # Reset string to empty
+    $wcstr = '';
+    
+    # Add question marks
+    for(my $j = 0; $j < $qmc; $j++) {
+      $wcstr = $wcstr . '?';
+    }
+    
+    # Add asterisk if there were any
+    if ($ast) {
+      $wcstr = $wcstr . '*';
+    }
+    
+    # Shouldn't be empty
+    (length($wcstr) > 0) or die "Unexpected";
+    
+    # Set the normalized wildcard string
+    $a->[0] = $wcstr;
+  }
+  
+  # Starting at end of query and working backward, replace all wildcard
+  # sequences with the normalized version
+  for(my $j = $#wcl; $j >= 0; $j--) {
+    substr($query, $wcl[$j]->[1], $wcl[$j]->[2], $wcl[$j]->[0]);
+  }
+  
+  # Start a read-only workblock
+  my $dbh = $dbc->beginWork('r');
+  my $qr;
+  
+  # If we are in loose matching mode, we need to get a Han-normalized
+  # version of the string
+  if ($match_style eq 'loose') {
+    # Store current query in strict_query and make query a blank string
+    my $strict_query = $query;
+    $query = '';
+    
+    # Define a hash that will map Han codepoints to their normalized
+    # form
+    my %nhash;
+    
+    # Go character by character, copying over to query and normalizing
+    # if necessary
+    for my $c (split //, $strict_query) {
+      # If this is a wildcard, copy it directly to query and skip rest
+      # of processing
+      if (($c eq '*') or ($c eq '?')) {
+        $query = $query . $c;
+        next;
+      }
+      
+      # Get current codepoint value
+      my $cpv = ord($c);
+      
+      # If codepoint not in normalization hash, look up the entry
+      unless (defined $nhash{"$cpv"}) {
+        $qr = $dbh->selectrow_arrayref(
+                'SELECT smpnorm FROM smp WHERE smpsrc=?',
+                undef,
+                $cpv);
+        if (ref($qr) eq 'ARRAY') {
+          $nhash{"$cpv"} = $qr->[0];
+        } else {
+          $nhash{"$cpv"} = $cpv;
+        }
+      }
+      
+      # Replace codepoint with its normalized form
+      $cpv = $nhash{"$cpv"};
+      
+      # Add normalized codepoint to query
+      $query = $query . chr($cpv);
+    }
+  }
+  
+  # Get the appropriate comparison phrase
+  my $cmp;
+  if ($query =~ /[\*\?]/) {
+    $cmp = string_to_db("LIKE '$query'");
+    $cmp =~ s/\*/%/g;
+    $cmp =~ s/\?/_/g;
+    
+  } else {
+    $cmp = string_to_db("= '$query'");
+  }
+  
+  # Build the appropriate SQL command depending on match style
+  my $sql;
+  if ($match_style eq 'loose') {
+    $sql = qq{
+      SELECT DISTINCT word.wordid, wordlevel
+      FROM spk
+      INNER JOIN word ON word.wordid = spk.wordid
+      WHERE spk.spknorm $cmp
+      ORDER BY wordlevel ASC, word.wordid ASC
+    };
+    
+  } elsif ($match_style eq 'strict') {
+    $sql = qq{
+      SELECT DISTINCT word.wordid, wordlevel
+      FROM han
+      INNER JOIN word ON word.wordid = han.wordid
+      WHERE han.handtrad $cmp
+      ORDER BY wordlevel ASC, word.wordid ASC
+    };
+    
+  } else {
+    die "Unexpected";
+  }
+
+  # If we have both window parameters defined, add window
+  if ((defined $window_size) and (defined $window_pos)) {
+    $sql = $sql . " LIMIT $window_size OFFSET $window_pos";
+  }
+  
+  # Run the SQL query and finish the work block
+  $qr = $dbh->selectall_arrayref($sql);
   $dbc->finishWork;
   
   # If the query result is undefined, replace with an empty array
