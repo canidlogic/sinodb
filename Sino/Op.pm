@@ -3232,7 +3232,7 @@ sub han_query {
       SELECT DISTINCT word.wordid, wordlevel
       FROM han
       INNER JOIN word ON word.wordid = han.wordid
-      WHERE han.handtrad $cmp
+      WHERE han.hantrad $cmp
       ORDER BY wordlevel ASC, word.wordid ASC
     };
     
