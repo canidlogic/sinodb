@@ -14,7 +14,8 @@ Sino::Op - Sino database operations module.
           enter_ref
           enter_atom
           words_xml
-          keyword_query);
+          keyword_query
+          han_query);
     
     # Convert Unicode string to binary format needed for SQLite
     my $database_string = string_to_db($unicode_string);
@@ -58,6 +59,13 @@ Sino::Op - Sino database operations module.
     
     # Get matching words for a keyword query
     my $matches = keyword_query($dbc, 'husky AND "sled dog"', undef);
+    for my $match (@$matches) {
+      my $match_wordid    = $match->[0];
+      my $match_wordlevel = $match->[1];
+    }
+    
+    # Get matching words for a Han query
+    my $matches = han_query($dbc, $han, undef);
     for my $match (@$matches) {
       my $match_wordid    = $match->[0];
       my $match_wordlevel = $match->[1];
@@ -683,6 +691,61 @@ documentation for further information.
     (The `max_query` `max_depth` and `max_token` attributes are intended
     for putting limits on query complexity, which is useful when you are
     allowing the general public to run queries over the Internet.)
+
+    The `window_size` attribute, if specified, must be set to an integer
+    value greater than zero.  If set, then this is the maximum number of
+    records that will be returned.  If this attribute is not specified,
+    there is no upper limit on how many records can be returned, and the
+    `window_pos` is ignored.
+
+    The `window_pos` attribute, if specified, must be set to an integer
+    value zero or greater.  If set, then this is the number of records that
+    are skipped at the beginning of the results.  If this attribute is not
+    specified, then it defaults to a value of zero, meaning no records are
+    skipped.  This attribute is ignored if `window_size` is not set.
+
+    (The `window_size` and `window_pos` attributes when used together
+    allow for returning windows of results when there are potentially many
+    results.  Windowing is handled by the database engine, so it is fast.)
+
+- **han\_query(dbc, query, attrib)**
+
+    Given a `Sino::DB` database connection, a Han query string, and
+    optionally a hash reference with query parameters, return an array
+    reference to matching records.
+
+    The query is a sequence of one or more Han characters and wildcards,
+    optionally surrounded by whitespace.  The wildcards allowed are `*`
+    meaning match any sequence of zero or more Han characters and `?`
+    meaning match any one Han character.  These can be combined in a
+    sequence, such that `???*` means match any sequence of three or more
+    Han characters, for example.  Wildcard normalization will be performed
+    by this function, in the same manner as for `keyword_query`.
+
+    Han character matching uses "Han normalization" such that simplified and
+    traditional variants of the same character will match each other.  You
+    can specify strict matching only with an attribute (see below).
+
+    The query string must be Unicode encoded.  Do not pass a binary-encoded
+    string.
+
+    The return is always an array reference.  If there were no matches, a
+    reference to an empty array will be returned.  Else, each record will be
+    a subarray reference that has two elements, the first being the word ID
+    and the second being the word level.  Records are sorted primarily by
+    ascending order of word level so that simpler, more frequent words come
+    first.  Within each word level, records are sorted in increasing order
+    of word ID.
+
+    The `attrib` parameter can be set to `undef` if you don't need any
+    special attributes.  Otherwise, it is a key/value map where unrecognized
+    attribute keys are ignored.
+
+    The `match_style` attribute, if specified, must be set to `strict` or
+    `loose`.  If not specified, `loose` is the default.  With loose
+    matching, "Han normalization" is used so that simplified and traditional
+    variants will match.  With strict matching, no Han normalization is
+    performed, such that characters will only match if exactly the same.
 
     The `window_size` attribute, if specified, must be set to an integer
     value greater than zero.  If set, then this is the maximum number of
