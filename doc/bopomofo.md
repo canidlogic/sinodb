@@ -70,7 +70,7 @@ The first exception concerns the ㄜ/ㄝ entry for "E" in the above list.  Use �
 
 The second exception is that when `u` occurs after `j` `q` or `x` in Pinyin, it should be changed to `ü` before looking it up in the Pinyin tables.  (See spelling rule I in `pinyin.md`.)
 
-The third exception is that ㄦ is ambiguous in Bopomofo, being used both as a final and as an erhua.  The rule for distinguishing these two cases is that ㄦ is a final when there is no initial nor medial, and ㄦ is an erhua when either an initial or a medial or some other final (or each of these) are present.  In other words, ㄦ is a final only when it stands alone.
+The third exception is that ㄦ is ambiguous in Bopomofo, being used both as a final and as an erhua.  The rule for distinguishing these two cases is that ㄦ is a final when there is no initial nor medial, and ㄦ is an erhua when either an initial or a medial or some other final (or each of these) are present.  In other words, ㄦ is a final only when it stands alone (except for an optional tone mark).
 
 ## Erhua
 
@@ -78,42 +78,42 @@ The erhua, when present, is represented with ㄦ in Bopomofo.  This Bopomofo sym
 
 ## Tonal marks
 
-Bopomofo represents syllable tone with special marker characters.  The first tone (high) is usually unmarked, while all other tones receive markers.  (Compare to Pinyin, where the fifth tone (neutral) is usually unmarked, while all other tones receive diacritics.)  Bopomofo tonal marks stand on their own, as opposed to the diacritics that are written above letters in Pinyin.  The following table shows the Bopomofo tonal marks:
+Bopomofo represents syllable tone with special marker characters.  The first tone (high) is unmarked, while all other tones receive markers.  (Compare to Pinyin, where the fifth tone (neutral) is unmarked, while all other tones receive diacritics.)  Bopomofo tonal marks stand on their own, as opposed to the diacritics that are written above letters in Pinyin.  The following table shows the Bopomofo tonal marks:
 
      Number | Description | Modifier Letter | Unicode
     ========+=============+=================+=========
-        1   | High        | Macron (*)      |    ˉ
+        1   | High        | (none)          |     
         2   | Rising      | Acute accent    |    ˊ
         3   | Low         | Caron           |    ˇ
         4   | Falling     | Grave accent    |    ˋ
         5   | Neutral     | Dot Above       |    ˙
-    
-    (*) - Not usually indicated
 
-Except for tone 5, each of these tonal marks are positioned after the final but before the erhua.  Note, then, that ㄦ is followed by a tone mark when it is a final, or preceded by a tone mark when it is an initial.
+Tonal marks 2-4 are positioned within the syllable structure after the final but before the erhua.  Note, then, that ㄦ is followed by a tone mark when it is a final, or preceded by a tone mark when it is an erhua.
 
-For tone 5, the tone mark comes first, before the initial.
+For tone 5, the tone mark comes first in the syllable structure, before the initial.
 
 ## Formal syntax
 
 Standard Bopomofo has the following syntax:
 
     transcript := ws* syllable ( ws+ syllable )* ws*
-    syllable   := tone5? initial? medial? final? tone14? erhua?
+    syllable   := tone5? initial? medial? final? tone24? erhua?
     
-    ws         := <any whitespace character>
+    ws         := <any whitespace character, incl. U+3000>
     tone5      := < ˙ >
     initial    := < ㄆㄅㄊㄉㄎㄍㄇㄋㄘㄗㄔㄓㄑㄐㄈㄙㄕㄒㄏㄌㄖ >
     medial     := < ㄧㄨㄩ >
     final      := < ㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦ >
-    tone14     := < ˉˊˇˋ >
+    tone24     := < ˊˇˋ >
     erhua      := < ㄦ >
+
+Make sure to recognized U+3000 (Ideographic Space) as a whitespace character.
 
 Not all transcriptions that match this syntax are valid.  The following limitations also apply:
 
 - At least one of `initial` `medial` and `final` must be present in each `syllable`.
 
-- `tone5` and `tone14` may not both be present.
+- `tone5` and `tone24` may not both be present.
 
 - If `final` is ㄦ then neither `initial` nor `medial` nor `erhua` may be present.
 
@@ -123,23 +123,23 @@ Not all transcriptions that match this syntax are valid.  The following limitati
 
 - If `initial` is ㄅㄆㄇㄈ and `final` is ㄛ, then `medial` may not be ㄨ.
 
-Each unique Bopomofo syllable is different from all others, with one exception.  Suppose that a syllable A has `initial` `medial` `final` and `erhua` equivalent to a syllable B.  Suppose that syllable A has neither `tone5` nor `tone14`.  Suppose that syllable B has `tone14` set to ˉ (tone 1).  Then, A and B are equivalent.  (In other words, if a syllable has no tonal marks, then it is equivalent to the same syllable with tone mark 1.)
+Under this syntax, two Bopomofo `syllable` structures are equivalent only if they have the exact same sequence of codepoints.
 
 ## Query format
 
-A special Bopomofo _query format_ is allowed for performing phonetic queries in Sino.  This query format is a superset of the standard Bopomofo format, so that standard Bopomofo works as expected, with one minor difference.  The minor difference is that an absence of any tonal mark within a syllable is interpreted in query format as meaning the syllable should match syllables of any tone, while in standard Bopomofo the absence of any tonal mark means tone 1.  In other words, the only difference between standard Bopomofo and its query format subset is that tonal marks should always be explicit if you want to match by tone in query format.
+A special Bopomofo _query format_ is allowed for performing phonetic queries in Sino.  This query format is a superset of the standard Bopomofo format, so that standard Bopomofo works as expected.
 
 In standard Bopomofo, a transcription is a sequence of syllables.  In query format, a query is a sequence of _entities,_ where each entity may either be a _query key_ or a _wildcard sequence._  Wildcard sequences are a sequence of one or more `*` and/or `?` characters.  `*` means any sequence of zero or more syllables, while `?` means any single syllable.  These can be combined, such that for example `???*` means any sequence of three or more syllables.  Erhua inflections are _not_ counted as separate syllables.  Wildcard sequences that appear next to each other in the query are collapsed into a single wildcard sequence, and then each wildcard sequence is normalized into a sequence of zero or more `?` wildcards followed optionally by a `*` wildcard.
 
 Query keys use standard Bopomofo syllable syntax, with the following extensions:
 
-- If no tone mark is indicated, the query can match syllables of any tone.  If you want to match tone 1 only, explicitly include a tone 1 mark, even though this are usually not included in standard Bopomofo.
+- The special tone-mark wildcard `!` is allowed, which means match any tone.  Note that if no tone marks are present, the syllable only matches tone 1.
 
 - Tone marks may appear at any position within the query key, but there may be at most one tone mark per query key.
 
 - You may use `(ㄦ)` in place of an erhua inflection to indicate that the query key can match syllables both with and without an erhua inflection.
 
-- If you prefix the query key with the ASCII tilde `~` then an approximate match is performed for initial, medial, and finals.  If no initial is present in the query key, then any initial or no initial at all may match; if no medial is present in the query key, then any medial or no medial at all may match; if no final is present in the query key, then any final or no final at all may match.  Without the tilde, if no initial is present in the query key, then there must be no initial to match, and so forth.  The tilde does not affect tonal matching and erhua matching, which can be controlled with the syntax conventions noted above.
+- If you prefix the query key with a percent `%` then an approximate match is performed for initial, medial, and finals.  If no initial is present in the query key, then any initial or no initial at all may match; if no medial is present in the query key, then any medial or no medial at all may match; if no final is present in the query key, then any final or no final at all may match.  Without the percent prefix, if no initial is present in the query key, then there must be no initial to match, and so forth.  The precent prefix does not affect tonal matching and erhua matching, which can be controlled with the syntax conventions noted above.
 
 Syntax of query format is as follows:
 
@@ -147,22 +147,35 @@ Syntax of query format is as follows:
     entity  := ( key | wildseq )
 
     wildseq := ( "*" | "?" )+
-    key     := ( "~" )? initial? medial? final? erhua?
+    key     := ( "%" )? initial? medial? final? erhua?
 
     initial := tone-c? initial-c tone-c?
     medial  := tone-c? medial-c tone-c?
     final   := tone-c? final-c tone-c?
     erhua   := tone-c? ( ㄦ | "(" ㄦ ")" ) tone-c?
 
-    ws        := <any whitespace character>
+    ws        := <any whitespace character, incl. U+3000>
     initial-c := < ㄆㄅㄊㄉㄎㄍㄇㄋㄘㄗㄔㄓㄑㄐㄈㄙㄕㄒㄏㄌㄖ >
     medial-c  := < ㄧㄨㄩ >
     final-c   := < ㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦ >
-    tone-c    := < ˉˊˇˋ˙ >
+    tone-c    := < ˊˇˋ˙! >
+
+For the wildcard characters `*` `?` `%` `!` `(` `)` you can use both the plain ASCII characters or the fullwidth forms:
+
+     Wildcard | Plain ASCII | Fullwidth variant
+    ==========+=============+===================
+        *     |    U+002A   |      U+FF0A
+        ?     |    U+003F   |      U+FF1F
+        %     |    U+0025   |      U+FF05
+        !     |    U+0021   |      U+FF01
+        (     |    U+0028   |      U+FF08
+        )     |    U+0029   |      U+FF09
+
+Make sure to recognized U+3000 (Ideographic Space) as a whitespace character.
 
 Not all queries that match this syntax are valid.  The following limitations also apply:
 
-- Unless a `key` has a tilde prefix, at least one of `initial` `medial` and `final` must be present in each `key`.
+- Unless a `key` has a `%` prefix, at least one of `initial` `medial` and `final` must be present in each `key`.
 
 - At most one `tone-c` may be present in each `key`.
 
@@ -170,7 +183,7 @@ Not all queries that match this syntax are valid.  The following limitations als
 
 - If `final` is ㄜ then `medial` may not be present.
 
-- Unless a `key` has a tilde prefix, if `medial` is ㄧ and `final` is not present, then `initial` may not be ㄘㄗㄔㄓㄙㄕㄖ.
+- Unless a `key` has a `%` prefix, if `medial` is ㄧ and `final` is not present, then `initial` may not be ㄘㄗㄔㄓㄙㄕㄖ.
 
 - If `initial` is ㄅㄆㄇㄈ and `final` is ㄛ, then `medial` may not be ㄨ.
 
@@ -182,11 +195,9 @@ Storage format is the same as standard Bopomofo format, with the following diffe
 
 - Each syllable begins with an ASCII `+` sign and no whitespace is used between, before, or after syllables.
 
-- Tone 1 is always explicitly notated and never left implicit.
+- Tone 5 marks are placed in the same position as tone 2-4 marks.
 
-- Tone 5 marks are placed in the same position as tone 1-4 marks.
-
-- When `initial` `medial` `final` or `erhua` is not present, each of these is replaced by an ASCII `.` period instead of just being omitted.
+- When `initial` `medial` `final` or `erhua` is not present, each of these is replaced by an ASCII `.` period instead of just being omitted.  Similarly, when a syllable is tone 1, its tone mark is replaced by an ASCII `.` period instead of being omitted.
 
 Because of these rules, each Bopomofo syllable in storage format always has exactly six codepoints:
 
@@ -194,7 +205,7 @@ Because of these rules, each Bopomofo syllable in storage format always has exac
 2. Initial or `.`
 3. Medial or `.`
 4. Final or `.`
-5. Tone mark
+5. Tone mark or `.`
 6. Erhua or `.`
 
 The fixed width, predictable positioning of fields, and the use of a `+` marker in front of each syllable allows each of the wildcard and optional feature queries from query format to be implemented efficiently in SQL queries.
