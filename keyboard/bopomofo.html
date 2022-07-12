@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8"/>
+    <title>ㄅㄆㄇㄈ</title>
+    <meta name="viewport" 
+      content="width=device-width, initial-scale=1.0"/>
+    <style>
+
+@font-face {
+    font-family: 'AR PL KaitiM Big5';
+    src: url('bkai00mp.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+}
+
+body {
+  max-width: 35em;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 0.5em;
+  padding-right: 1.5em;
+  margin-top: 2.5em;
+  margin-bottom: 5em;
+  font-family: 'AR PL KaitiM Big5', sans-serif;
+  color: black;
+  background-color: whitesmoke;
+}
+
+h1 {
+  font-size: 200%;
+}
+
+#tblKeys {
+  border-collapse: "collapse";
+  width: 100%;
+}
+
+#tblKeys td {
+  text-align: center;
+  border: medium outset;
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+  cursor: pointer;
+  background-color: white;
+}
+
+#tblKeys .blank {
+  border: none;
+  cursor: auto;
+  background-color: whitesmoke;
+}
+
+#tblKeys .notch {
+  background-color: silver;
+}
+
+#tblKeys .spec {
+  background-color: gold;
+}
+
+#txtInput {
+  width: 100%;
+  height: 30em;
+  overflow: auto;
+  resize: vertical;
+  border: medium inset;
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 1.5em;
+  padding: 0.25em;
+  font-family: 'AR PL KaitiM Big5', sans-serif;
+  font-size: larger;
+  background-color: white;
+}
+    
+    </style>
+    <script>
+
+// Wrap everything in an anonymous function that we immediately invoke
+// after it is declared -- this prevents anything from being implicitly
+// added to global scope
+(function() {
+
+  /*
+   * Constants
+   * =========
+   */
+
+  /*
+   * Mapping of KeyboardEvent.code values to what should be typed, or
+   * empty string if nothing should be typed for this key.
+   *
+   * Keycodes that are not keys of this object at all will have their
+   * default behavior.  So, it is NOT the same to map a keycode to an
+   * empty string as opposed to leaving it out.
+   *
+   * The state of shift and caps lock is ignored in the virtual
+   * keyboard, since Bopomofo doesn't have any notion of case.  However,
+   * if modifier keys such as CTRL or ALT are present, then the virtual
+   * keyboard is completely ignored so that shortcuts for copying and
+   * pasting and so forth can work.
+   */
+  var KEY_MAP = {
+    "Digit1"    : "\u3105",
+    "Digit2"    : "\u3109",
+    "Digit3"    : "\u02c7",
+    "Digit4"    : "\u02cb",
+    "Digit5"    : "\u3113",
+    "Digit6"    : "\u02ca",
+    "Digit7"    : "\u02d9",
+    "Digit8"    : "\u311a",
+    "Digit9"    : "\u311e",
+    "Digit0"    : "\u3122",
+    "Minus"     : "\u3126",
+    "KeyQ"      : "\u3106",
+    "KeyW"      : "\u310a",
+    "KeyE"      : "\u310d",
+    "KeyR"      : "\u3110",
+    "KeyT"      : "\u3114",
+    "KeyY"      : "\u3117",
+    "KeyU"      : "\u3127",
+    "KeyI"      : "\u311b",
+    "KeyO"      : "\u311f",
+    "KeyP"      : "\u3123",
+    "KeyA"      : "\u3107",
+    "KeyS"      : "\u310b",
+    "KeyD"      : "\u310e",
+    "KeyF"      : "\u3111",
+    "KeyG"      : "\u3115",
+    "KeyH"      : "\u3118",
+    "KeyJ"      : "\u3128",
+    "KeyK"      : "\u311c",
+    "KeyL"      : "\u3120",
+    "Semicolon" : "\u3124",
+    "KeyZ"      : "\u3108",
+    "KeyX"      : "\u310c",
+    "KeyC"      : "\u310f",
+    "KeyV"      : "\u3112",
+    "KeyB"      : "\u3116",
+    "KeyN"      : "\u3119",
+    "KeyM"      : "\u3129",
+    "Comma"     : "\u311d",
+    "Period"    : "\u3121",
+    "Slash"     : "\u3125",
+    "Space"     : "\u3000"
+  };
+
+  /*
+   * Local functions
+   * ===============
+   */
+
+  /*
+   * Report an error to console and throw an exception for a fault
+   * occurring within this module.
+   *
+   * Parameters:
+   *
+   *   func_name : string - the name of the function in this module
+   *
+   *   loc : number(int) - the location within the function
+   */
+  function fault(func_name, loc) {
+    
+    // If parameters not valid, set to unknown:0
+    if ((typeof func_name !== "string") || (typeof loc !== "number")) {
+      func_name = "unknown";
+      loc = 0;
+    }
+    loc = Math.floor(loc);
+    if (!isFinite(loc)) {
+      loc = 0;
+    }
+    
+    // Report error to console
+    console.log("Fault at " + func_name + ":" + String(loc) +
+                  " in bopomofo.html");
+    
+    // Throw exception
+    throw ("bpmf:" + func_name + ":" + String(loc));
+  }
+
+  /*
+   * Event handler for when a key is pressed on the input control.
+   */
+  function handleKey(e) {
+    var func_name = "handleKey";
+    
+    // First of all, check whether ALT, CTRL, or META/OS modifier keys
+    // are present; if they are, then ignore the event so that shortcuts
+    // can work; ignore the state of Shift and CapsLock since case is
+    // irrelevant for Bopomofo
+    if (e.getModifierState("Alt") ||
+        e.getModifierState("AltGraph") ||
+        e.getModifierState("Control") ||
+        e.getModifierState("Meta") ||
+        e.getModifierState("OS")) {
+      return;
+    }
+    
+    // Second, check whether the keycode is recognized in our virtual
+    // keyboard map; if it is not, then ignore the event so that default
+    // processing happens for things like arrow keys and backspace
+    if (!(e.code in KEY_MAP)) {
+      return;
+    }
+    
+    // If we got here, then we have a virtual keyboard press that we are
+    // going to handle ourselves, so suppress default behavior
+    e.preventDefault();
+    
+    // Type the virtual character(s), if any
+    typeString(KEY_MAP[e.code]);
+  }
+  
+  /*
+   * Event handler for when the mouse button is pressed down on one of
+   * the keys of the virtual keyboard.
+   */
+  function handleVkey(e) {
+    var func_name = "handleVkey";
+    var c;
+    
+    // Ignore call if target element has no ID
+    if (!("id" in e.target)) {
+      return;
+    }
+    if (typeof(e.target.id) !== "string") {
+      return;
+    }
+    
+    // Ignore call if ID of target element is not in proper format
+    if (!((/^keyb[0-9a-fA-F]{4}$/).test(e.target.id))) {
+      return;
+    }
+    
+    // If we got here, then target has ID in proper format, so last four
+    // characters in the ID are the codepoint to type in base-16
+    c = parseInt(e.target.id.slice(-4), 16);
+    c = String.fromCharCode(c);
+    
+    // Type this character
+    typeString(c);
+  }
+
+  /*
+   * Public functions
+   * ================
+   */
+
+  /*
+   * Given a string, add it to the input box at the current position.
+   *
+   * If the given string is empty, this call is ignored.
+   *
+   * Parameters:
+   *
+   *   str : string - string to add to input box
+   */
+  function typeString(str) {
+    var func_name = "typeString";
+    var eInput;
+    
+    // Check parameter
+    if (typeof(str) !== "string") {
+      fault(func_name, 100);
+    }
+    
+    // If string is empty, ignore this function call
+    if (str.length < 1) {
+      return;
+    }
+    
+    // Get the textarea control on the form
+    eInput = document.getElementById("txtInput");
+    if (!eInput) {
+      fault(func_name, 101);
+    }
+    
+    // Insert text at current position in text area and update position
+    // to after the text that was just inserted
+    eInput.setRangeText(
+      str,
+      eInput.selectionStart,
+      eInput.selectionEnd,
+      "end");
+  }
+
+  /*
+   * Function invoked once the DOM has been loaded and is ready for
+   * scripting.
+   */
+  function handleLoad() {
+    var func_name = "handleLoad";
+    var eInput, eTDs, eTD, x;
+    
+    // Install our keypress handler on the text area
+    eInput = document.getElementById("txtInput");
+    if (!eInput) {
+      fault(func_name, 100);
+    }
+    eInput.addEventListener('keydown', handleKey);
+    
+    // Connect all of the virtual keyboard keys in the display table to
+    // event handlers
+    eTDs = document.getElementsByTagName("td");
+    for(x = 0; x < eTDs.length; x++) {
+      // Get current TD element
+      eTD = eTDs[x];
+      
+      // Ignore if no id attribute
+      if (!("id" in eTD)) {
+        continue;
+      }
+      if (typeof(eTD.id) !== "string") {
+        continue;
+      }
+      
+      // Ignore if ID of TD is not in correct format
+      if (!((/^keyb[0-9a-fA-F]{4}$/).test(eTD.id))) {
+        continue;
+      }
+      
+      // If we got here, then eTD is an element we need to connect to
+      // typeString through an event handler
+      eTD.addEventListener('mousedown', handleVkey);
+    }
+  }
+
+  /*
+   * Export declarations
+   * ===================
+   * 
+   * All exports are declared within a global "bpmf" object.
+   */
+  
+  window.bpmf = {
+    "typeString": typeString,
+    "handleLoad": handleLoad
+  };  
+
+}());
+
+// Call into our load handler once DOM is ready
+document.addEventListener('DOMContentLoaded', bpmf.handleLoad);
+
+    </script>
+  </head>
+  <body>
+    <h1>ㄅㄆㄇㄈ</h1>
+    <table id="tblKeys">
+      <tr>
+        <td id="keyb3105">&#x3105;</td>
+        <td id="keyb3109">&#x3109;</td>
+        <td id="keyb02c7">&#x02c7;</td>
+        <td id="keyb02cb">&#x02cb;</td>
+        <td id="keyb3113">&#x3113;</td>
+        <td id="keyb02ca">&#x02ca;</td>
+        <td id="keyb02d9">&#x02d9;</td>
+        <td id="keyb311a">&#x311a;</td>
+        <td id="keyb311e">&#x311e;</td>
+        <td id="keyb3122">&#x3122;</td>
+        <td id="keyb3126">&#x3126;</td>
+      </tr>
+      <tr>
+        <td id="keyb3106">&#x3106;</td>
+        <td id="keyb310a">&#x310a;</td>
+        <td id="keyb310d">&#x310d;</td>
+        <td id="keyb3110">&#x3110;</td>
+        <td id="keyb3114">&#x3114;</td>
+        <td id="keyb3117">&#x3117;</td>
+        <td id="keyb3127">&#x3127;</td>
+        <td id="keyb311b">&#x311b;</td>
+        <td id="keyb311f">&#x311f;</td>
+        <td id="keyb3123">&#x3123;</td>
+        <td class="blank">&nbsp;</td>
+      </tr>
+      <tr>
+        <td id="keyb3107">&#x3107;</td>
+        <td id="keyb310b">&#x310b;</td>
+        <td id="keyb310e">&#x310e;</td>
+        <td id="keyb3111" class="notch">&#x3111;</td>
+        <td id="keyb3115">&#x3115;</td>
+        <td id="keyb3118">&#x3118;</td>
+        <td id="keyb3128" class="notch">&#x3128;</td>
+        <td id="keyb311c">&#x311c;</td>
+        <td id="keyb3120">&#x3120;</td>
+        <td id="keyb3124">&#x3124;</td>
+        <td class="blank">&nbsp;</td>
+      </tr>
+      <tr>
+        <td id="keyb3108">&#x3108;</td>
+        <td id="keyb310c">&#x310c;</td>
+        <td id="keyb310f">&#x310f;</td>
+        <td id="keyb3112">&#x3112;</td>
+        <td id="keyb3116">&#x3116;</td>
+        <td id="keyb3119">&#x3119;</td>
+        <td id="keyb3129">&#x3129;</td>
+        <td id="keyb311d">&#x311d;</td>
+        <td id="keyb3121">&#x3121;</td>
+        <td id="keyb3125">&#x3125;</td>
+        <td class="blank">&nbsp;</td>
+      </tr>
+      <tr>
+        <td class="blank">&nbsp;</td>
+        <td id="keybff0a" class="spec">&#xff0a;</td>
+        <td id="keybff1f" class="spec">&#xff1f;</td>
+        <td colspan="4" id="keyb3000" class="notch">&nbsp;</td>
+        <td id="keybff05" class="spec">&#xff05;</td>
+        <td id="keybff01" class="spec">&#xff01;</td>
+        <td colspan="2" class="blank">&nbsp;</td>
+      </tr>
+    </table>
+    <textarea
+      id="txtInput"
+      autocorrect="off"
+      autofocus
+      spellcheck="false"></textarea>
+  </body>
+</html>
