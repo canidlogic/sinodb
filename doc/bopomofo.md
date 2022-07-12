@@ -129,7 +129,7 @@ Under this syntax, two Bopomofo `syllable` structures are equivalent only if the
 
 A special Bopomofo _query format_ is allowed for performing phonetic queries in Sino.  This query format is a superset of the standard Bopomofo format, so that standard Bopomofo works as expected.
 
-In standard Bopomofo, a transcription is a sequence of syllables.  In query format, a query is a sequence of _entities,_ where each entity may either be a _query key_ or a _wildcard sequence._  Wildcard sequences are a sequence of one or more `*` and/or `?` characters.  `*` means any sequence of zero or more syllables, while `?` means any single syllable.  These can be combined, such that for example `???*` means any sequence of three or more syllables.  Erhua inflections are _not_ counted as separate syllables.  Wildcard sequences that appear next to each other in the query are collapsed into a single wildcard sequence, and then each wildcard sequence is normalized into a sequence of zero or more `?` wildcards followed optionally by a `*` wildcard.
+In standard Bopomofo, a transcription is a sequence of syllables.  In query format, a query is a sequence of _entities,_ where each entity may either be a _query key_, _Pinyin key_, or a _wildcard sequence._  Wildcard sequences are a sequence of one or more `*` and/or `?` characters.  `*` means any sequence of zero or more syllables, while `?` means any single syllable.  These can be combined, such that for example `???*` means any sequence of three or more syllables.  Erhua inflections are _not_ counted as separate syllables.  Wildcard sequences that appear next to each other in the query are collapsed into a single wildcard sequence, and then each wildcard sequence is normalized into a sequence of zero or more `?` wildcards followed optionally by a `*` wildcard.
 
 Query keys use standard Bopomofo syllable syntax, with the following extensions:
 
@@ -141,18 +141,40 @@ Query keys use standard Bopomofo syllable syntax, with the following extensions:
 
 - If you prefix the query key with a percent `%` then an approximate match is performed for initial, medial, and finals.  If no initial is present in the query key, then any initial or no initial at all may match; if no medial is present in the query key, then any medial or no medial at all may match; if no final is present in the query key, then any final or no final at all may match.  Without the percent prefix, if no initial is present in the query key, then there must be no initial to match, and so forth.  The precent prefix does not affect tonal matching and erhua matching, which can be controlled with the syntax conventions noted above.
 
+Pinyin keys use a simple Pinyin syntax:
+
+- Each Pinyin key notates a single syllable.
+
+- Each Pinyin key is a sequence of one or more letters, followed optionally by a tone number 1-5.
+
+- You may use `v` instead of `ü`
+
+- Letters in Pinyin keys are case-insensitive.
+
+- If the tone number is left out or it is replaced by `!` then the Pinyin key matches syllables of any tone.
+
+- If `(r)` is used in place of an erhua, syllables both with and without an erhua can be matched.
+
+- Pinyin syllables generally follow the syntax rules given in `pinyin.md` except that tones are notated as described above instead of with diacritics.
+
+Pinyin keys are translated into equivalent Bopomofo query keys before the query is run, so Pinyin keys are simply an alternate syntax for specifying syllables.  However, there is no way to perform `%` loose-matching queries with Pinyin keys.
+
 Syntax of query format is as follows:
 
     query   := ws* entity ( ws+ entity )* ws*
-    entity  := ( key | wildseq )
+    entity  := ( key | pny | wildseq )
 
     wildseq := ( "*" | "?" )+
     key     := ( "%" )? initial? medial? final? erhua?
+    pny     := psyl+ ( "(r)" | "(R)" )? ptone?
 
     initial := tone-c? initial-c tone-c?
     medial  := tone-c? medial-c tone-c?
     final   := tone-c? final-c tone-c?
     erhua   := tone-c? ( ㄦ | "(" ㄦ ")" ) tone-c?
+
+    psyl      := < A-Z a-z Ü ü >
+    ptone     := < 1-5 ! >
 
     ws        := <any whitespace character, incl. U+3000>
     initial-c := < ㄆㄅㄊㄉㄎㄍㄇㄋㄘㄗㄔㄓㄑㄐㄈㄙㄕㄒㄏㄌㄖ >
@@ -186,6 +208,8 @@ Not all queries that match this syntax are valid.  The following limitations als
 - Unless a `key` has a `%` prefix, if `medial` is ㄧ and `final` is not present, then `initial` may not be ㄘㄗㄔㄓㄙㄕㄖ.
 
 - If `initial` is ㄅㄆㄇㄈ and `final` is ㄛ, then `medial` may not be ㄨ.
+
+- Pinyin keys `pny` must follow the format described earlier in this section.
 
 ## Storage format
 
