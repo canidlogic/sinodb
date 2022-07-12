@@ -61,6 +61,25 @@ h1 {
   background-color: gold;
 }
 
+#tblMode {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.5em;
+}
+
+#tblMode th {
+  text-align: center;
+  font-weight: normal;
+  font-size: 200%;
+}
+
+#tblMode td {
+  width: 50%;
+  font-size: larger;
+  border: medium inset;
+  padding: 0.5em;
+}
+
 #txtInput {
   width: 100%;
   height: 30em;
@@ -149,6 +168,18 @@ h1 {
   };
 
   /*
+   * Local data
+   * ==========
+   */
+  
+  /*
+   * Flag set to true when virtual keyboard is "on" and intercepting
+   * key events, false when virtual keyboard is "off" and typing is
+   * system keyboard.
+   */
+  var m_virtual = true;
+
+  /*
    * Local functions
    * ===============
    */
@@ -189,10 +220,16 @@ h1 {
   function handleKey(e) {
     var func_name = "handleKey";
     
-    // First of all, check whether ALT, CTRL, or META/OS modifier keys
-    // are present; if they are, then ignore the event so that shortcuts
-    // can work; ignore the state of Shift and CapsLock since case is
-    // irrelevant for Bopomofo
+    // First of all, check whether virtual keyboard is enabled, ignoring
+    // the event if virtual keyboard is disabled
+    if (!m_virtual) {
+      return;
+    }
+    
+    // Check whether ALT, CTRL, or META/OS modifier keys are present; if
+    // they are, then ignore the event so that shortcuts can work;
+    // ignore the state of Shift and CapsLock since case is irrelevant
+    // for Bopomofo
     if (e.getModifierState("Alt") ||
         e.getModifierState("AltGraph") ||
         e.getModifierState("Control") ||
@@ -247,9 +284,47 @@ h1 {
   }
 
   /*
-   * Public functions
-   * ================
+   * Event handler for when the modal radio buttons change.
+   *
+   * The argument is ignored.  This function is also called during
+   * initialization to make sure the proper mode is displayed
    */
+  function handleMode(e) {
+    var func_name = "handleMode";
+    var e, useBpmf;
+    
+    // Determine whether the Bopomofo option is selected
+    e = document.getElementById("optBpmf");
+    if (!e) {
+      fault(func_name, 100);
+    }
+    
+    useBpmf = false;
+    if (e.checked) {
+      useBpmf = true;
+    }
+    
+    // Update the virtual keyboard flag depending on whether we are in
+    // Bopomofo mode
+    if (useBpmf) {
+      m_virtual = true;
+    } else {
+      m_virtual = false;
+    }
+    
+    // Show or hide the Bopomofo keyboard depending on whether we are in
+    // Bopomofo mode
+    e = document.getElementById("divKeyboard");
+    if (!e) {
+      fault(func_name, 200);
+    }
+    
+    if (useBpmf) {
+      e.style.display = "block";
+    } else {
+      e.style.display = "none";
+    }
+  }
 
   /*
    * Given a string, add it to the input box at the current position.
@@ -290,6 +365,11 @@ h1 {
   }
 
   /*
+   * Public functions
+   * ================
+   */
+
+  /*
    * Function invoked once the DOM has been loaded and is ready for
    * scripting.
    */
@@ -303,6 +383,19 @@ h1 {
       fault(func_name, 100);
     }
     eInput.addEventListener('keydown', handleKey);
+    
+    // Install our change handler on the radio buttons
+    eInput = document.getElementById("optBpmf");
+    if (!eInput) {
+      fault(func_name, 110);
+    }
+    eInput.addEventListener('change', handleMode);
+    
+    eInput = document.getElementById("optPny");
+    if (!eInput) {
+      fault(func_name, 120);
+    }
+    eInput.addEventListener('change', handleMode);
     
     // Connect all of the virtual keyboard keys in the display table to
     // event handlers
@@ -328,6 +421,10 @@ h1 {
       // typeString through an event handler
       eTD.addEventListener('mousedown', handleVkey);
     }
+    
+    // Invoke the change handler so the display gets updated for the
+    // current mode
+    handleMode(false);
   }
 
   /*
@@ -338,7 +435,6 @@ h1 {
    */
   
   window.bpmf = {
-    "typeString": typeString,
     "handleLoad": handleLoad
   };  
 
@@ -351,67 +447,95 @@ document.addEventListener('DOMContentLoaded', bpmf.handleLoad);
   </head>
   <body>
     <h1>ㄅㄆㄇㄈ</h1>
-    <table id="tblKeys">
+    <div id="divKeyboard">
+      <table id="tblKeys">
+        <tr>
+          <td id="keyb3105">&#x3105;</td>
+          <td id="keyb3109">&#x3109;</td>
+          <td id="keyb02c7">&#x02c7;</td>
+          <td id="keyb02cb">&#x02cb;</td>
+          <td id="keyb3113">&#x3113;</td>
+          <td id="keyb02ca">&#x02ca;</td>
+          <td id="keyb02d9">&#x02d9;</td>
+          <td id="keyb311a">&#x311a;</td>
+          <td id="keyb311e">&#x311e;</td>
+          <td id="keyb3122">&#x3122;</td>
+          <td id="keyb3126">&#x3126;</td>
+        </tr>
+        <tr>
+          <td id="keyb3106">&#x3106;</td>
+          <td id="keyb310a">&#x310a;</td>
+          <td id="keyb310d">&#x310d;</td>
+          <td id="keyb3110">&#x3110;</td>
+          <td id="keyb3114">&#x3114;</td>
+          <td id="keyb3117">&#x3117;</td>
+          <td id="keyb3127">&#x3127;</td>
+          <td id="keyb311b">&#x311b;</td>
+          <td id="keyb311f">&#x311f;</td>
+          <td id="keyb3123">&#x3123;</td>
+          <td id="keybff08" class="spec">&#xff08;</td>
+        </tr>
+        <tr>
+          <td id="keyb3107">&#x3107;</td>
+          <td id="keyb310b">&#x310b;</td>
+          <td id="keyb310e">&#x310e;</td>
+          <td id="keyb3111" class="notch">&#x3111;</td>
+          <td id="keyb3115">&#x3115;</td>
+          <td id="keyb3118">&#x3118;</td>
+          <td id="keyb3128" class="notch">&#x3128;</td>
+          <td id="keyb311c">&#x311c;</td>
+          <td id="keyb3120">&#x3120;</td>
+          <td id="keyb3124">&#x3124;</td>
+          <td id="keybff09" class="spec">&#xff09;</td>
+        </tr>
+        <tr>
+          <td id="keyb3108">&#x3108;</td>
+          <td id="keyb310c">&#x310c;</td>
+          <td id="keyb310f">&#x310f;</td>
+          <td id="keyb3112">&#x3112;</td>
+          <td id="keyb3116">&#x3116;</td>
+          <td id="keyb3119">&#x3119;</td>
+          <td id="keyb3129">&#x3129;</td>
+          <td id="keyb311d">&#x311d;</td>
+          <td id="keyb3121">&#x3121;</td>
+          <td id="keyb3125">&#x3125;</td>
+          <td class="blank">&nbsp;</td>
+        </tr>
+        <tr>
+          <td class="blank">&nbsp;</td>
+          <td id="keybff0a" class="spec">&#xff0a;</td>
+          <td id="keybff1f" class="spec">&#xff1f;</td>
+          <td colspan="4" id="keyb3000" class="notch">&nbsp;</td>
+          <td id="keybff05" class="spec">&#xff05;</td>
+          <td id="keybff01" class="spec">&#xff01;</td>
+          <td colspan="2" class="blank">&nbsp;</td>
+        </tr>
+      </table>
+    </div>
+    <table id="tblMode">
       <tr>
-        <td id="keyb3105">&#x3105;</td>
-        <td id="keyb3109">&#x3109;</td>
-        <td id="keyb02c7">&#x02c7;</td>
-        <td id="keyb02cb">&#x02cb;</td>
-        <td id="keyb3113">&#x3113;</td>
-        <td id="keyb02ca">&#x02ca;</td>
-        <td id="keyb02d9">&#x02d9;</td>
-        <td id="keyb311a">&#x311a;</td>
-        <td id="keyb311e">&#x311e;</td>
-        <td id="keyb3122">&#x3122;</td>
-        <td id="keyb3126">&#x3126;</td>
+        <th colspan="2">
+          鍵盤
+        </th>
       </tr>
       <tr>
-        <td id="keyb3106">&#x3106;</td>
-        <td id="keyb310a">&#x310a;</td>
-        <td id="keyb310d">&#x310d;</td>
-        <td id="keyb3110">&#x3110;</td>
-        <td id="keyb3114">&#x3114;</td>
-        <td id="keyb3117">&#x3117;</td>
-        <td id="keyb3127">&#x3127;</td>
-        <td id="keyb311b">&#x311b;</td>
-        <td id="keyb311f">&#x311f;</td>
-        <td id="keyb3123">&#x3123;</td>
-        <td class="blank">&nbsp;</td>
-      </tr>
-      <tr>
-        <td id="keyb3107">&#x3107;</td>
-        <td id="keyb310b">&#x310b;</td>
-        <td id="keyb310e">&#x310e;</td>
-        <td id="keyb3111" class="notch">&#x3111;</td>
-        <td id="keyb3115">&#x3115;</td>
-        <td id="keyb3118">&#x3118;</td>
-        <td id="keyb3128" class="notch">&#x3128;</td>
-        <td id="keyb311c">&#x311c;</td>
-        <td id="keyb3120">&#x3120;</td>
-        <td id="keyb3124">&#x3124;</td>
-        <td class="blank">&nbsp;</td>
-      </tr>
-      <tr>
-        <td id="keyb3108">&#x3108;</td>
-        <td id="keyb310c">&#x310c;</td>
-        <td id="keyb310f">&#x310f;</td>
-        <td id="keyb3112">&#x3112;</td>
-        <td id="keyb3116">&#x3116;</td>
-        <td id="keyb3119">&#x3119;</td>
-        <td id="keyb3129">&#x3129;</td>
-        <td id="keyb311d">&#x311d;</td>
-        <td id="keyb3121">&#x3121;</td>
-        <td id="keyb3125">&#x3125;</td>
-        <td class="blank">&nbsp;</td>
-      </tr>
-      <tr>
-        <td class="blank">&nbsp;</td>
-        <td id="keybff0a" class="spec">&#xff0a;</td>
-        <td id="keybff1f" class="spec">&#xff1f;</td>
-        <td colspan="4" id="keyb3000" class="notch">&nbsp;</td>
-        <td id="keybff05" class="spec">&#xff05;</td>
-        <td id="keybff01" class="spec">&#xff01;</td>
-        <td colspan="2" class="blank">&nbsp;</td>
+        <td>
+          <input
+            type="radio"
+            id="optBpmf"
+            name="grpMode"
+            value="bopomofo"
+            checked/>
+          ㄅㄆㄇㄈ
+        </td>
+        <td>
+          <input
+            type="radio"
+            id="optPny"
+            name="grpMode"
+            value="pinyin"/>
+          Pinyin
+        </td>
       </tr>
     </table>
     <textarea
