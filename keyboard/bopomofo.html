@@ -94,6 +94,15 @@ h1 {
   font-size: larger;
   background-color: white;
 }
+
+#divPanel {
+  margin-top: 1em;
+}
+
+#divPanel input {
+  font-size: larger;
+  padding: 0.5em;
+}
     
     </style>
     <script>
@@ -370,6 +379,115 @@ h1 {
    */
 
   /*
+   * Function invoked when one of the clipboard copy buttons is clicked.
+   *
+   * umode controls whether text will be copied as Unicode or escaped as
+   * ASCII.  The ASCII escape system uses ^ as an escape character, ^^
+   * for literal ^, and otherwise ^ is followed by exactly four base-16
+   * digits containing a codepoint.  Supplementals are encoded as two
+   * escaped surrogates.
+   *
+   * In ASCII mode, all codepoints outside the range [0x20, 0x7e] are
+   * escaped, and literal ^ are escaped as ^^.  However, before this
+   * escaping is performed, the following substitutions are performed to
+   * reduce the number of escapes:
+   *
+   *      Unicode | ASCII substitute
+   *     =========+==================
+   *       U+FF0A |        *
+   *       U+FF1F |        ?
+   *       U+FF05 |        %
+   *       U+FF01 |        !
+   *       U+FF08 |        (
+   *       U+FF09 |        )
+   *       U+3000 |     <space>
+   *
+   * In Unicode mode, the only processing is that literal ^ is replaced
+   * with ^^ so that the result can be intermixed with ASCII escaping.
+   *
+   * The text -- either the original Unicode or the escaped ASCII -- is
+   * then copied to the system clipboard.
+   *
+   * Parameters:
+   *
+   *   umode : boolean - true to copy Unicode, false to copy ASCII
+   */
+  function handleCopy(umode) {
+    var func_name = "handleCopy";
+    var e, str, src, i, esc;
+    
+    // Check parameter
+    if (typeof(umode) !== "boolean") {
+      fault(func_name, 100);
+    }
+    
+    // Get the current text from the text area
+    e = document.getElementById("txtInput");
+    if (!e) {
+      fault(func_name, 200);
+    }
+    str = e.value;
+    
+    // Perform necessary escaping escaping
+    if (umode) {
+      // Unicode mode, so just replace literal ^ with ^^
+      str = str.replace(/\^/g, "^^");
+      
+    } else {
+      // ASCII mode, so first perform ASCII substitutions
+      str = str.replace(/\uff0a/g, "*");
+      str = str.replace(/\uff1f/g, "?");
+      str = str.replace(/\uff05/g, "%");
+      str = str.replace(/\uff01/g, "!");
+      str = str.replace(/\uff08/g, "(");
+      str = str.replace(/\uff09/g, ")");
+      str = str.replace(/\u3000/g, " ");
+      
+      // Second, escape literal ^ as ^^
+      str = str.replace(/\^/g, "^^");
+      
+      // Third, make a copy of the string as is, and we will now rebuild
+      // the string, escaping any codepoints that are out of range
+      src = str;
+      str = "";
+      for(i = src.search(/[^\x20-\x7e]/);
+          i >= 0;
+          i = src.search(/[^\x20-\x7e]/)) {
+        // We found an extended codepoint at position i, so if there are
+        // any codepoints before that, transfer them to the new string
+        if (i > 0) {
+          str = str + src.slice(0, i);
+          src = src.slice(i);
+        }
+        
+        // Extended codepoint to encode is now the first character of
+        // the source string, so encode it
+        esc = src.charCodeAt(0);
+        esc = esc.toString(16);
+        while (esc.length < 4) {
+          esc = "0" + esc;
+        }
+        if (esc.length !== 4) {
+          fault(func_name, 300);
+        }
+        esc = "^" + esc;
+        
+        // Transfer escaped codepoint to new string and drop from source
+        // string
+        src = src.slice(1);
+        str = str + esc;
+      }
+      
+      // Fourth, anything remaining in the string copy is transferred to
+      // the rebuilt string
+      str = str + src;
+    }
+    
+    // Asynchronously copy to the clipboard
+    navigator.clipboard.writeText(str);
+  }
+
+  /*
    * Function invoked once the DOM has been loaded and is ready for
    * scripting.
    */
@@ -435,6 +553,7 @@ h1 {
    */
   
   window.bpmf = {
+    "handleCopy": handleCopy,
     "handleLoad": handleLoad
   };  
 
@@ -543,5 +662,17 @@ document.addEventListener('DOMContentLoaded', bpmf.handleLoad);
       autocorrect="off"
       autofocus
       spellcheck="false"></textarea>
+    <div id="divPanel">
+      <input
+        type="button"
+        id="btnUCopy"
+        value="剪貼板 Unicode"
+        onclick="bpmf.handleCopy(true)"/>
+      <input
+        type="button"
+        id="btnACopy"
+        value="剪貼板 ASCII"
+        onclick="bpmf.handleCopy(false)"/>
+    </div>
   </body>
 </html>
